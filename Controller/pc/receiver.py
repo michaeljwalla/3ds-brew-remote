@@ -23,8 +23,8 @@ from protocol import (
     HELLO_MSG, PACKET_SIZE, unpack_input,
 )
 
-HANDSHAKE_TIMEOUT_S = 1.0
-HANDSHAKE_RETRIES   = 5
+HANDSHAKE_TIMEOUT_S = 0.5
+HANDSHAKE_RETRIES   = 30
 POLL_TIMEOUT_S      = 1.0   # socket poll interval; short so we can check auto-terminate
 AUTO_TERMINATE_S    = 30.0  # exit if no valid packet received for this long
 ANALOG_EPSILON      = 0.005 # minimum analog delta treated as a real change
