@@ -1,3 +1,4 @@
 3ds-examples
 out
 .vscode
+__pycache__/
