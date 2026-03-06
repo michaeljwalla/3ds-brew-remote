@@ -23,11 +23,12 @@ from protocol import (
     HELLO_MSG, PACKET_SIZE, unpack_input,
 )
 
-HANDSHAKE_TIMEOUT_S = 0.5
-HANDSHAKE_RETRIES   = 30
-POLL_TIMEOUT_S      = 1.0   # socket poll interval; short so we can check auto-terminate
-AUTO_TERMINATE_S    = 30.0  # exit if no valid packet received for this long
-ANALOG_EPSILON      = 0.005 # minimum analog delta treated as a real change
+HANDSHAKE_TIMEOUT_S  = 0.5
+HANDSHAKE_RETRIES    = 30
+POLL_TIMEOUT_S       = 1.0   # socket poll interval; short so we can check auto-terminate
+AUTO_TERMINATE_S     = 30.0  # exit if no valid packet received for this long
+ANALOG_EPSILON       = 0.005 # minimum analog delta treated as a real change
+KEEPALIVE_INTERVAL_S = 5.0   # how often to re-send HELLO to the 3DS while streaming
 
 TIMELINE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'timeline.txt')
 
@@ -255,16 +256,23 @@ def do_handshake(sock, ds_addr):
 # Receive loop
 # ---------------------------------------------------------------------------
 
-def receive_loop(sock):
+def receive_loop(sock, ds_addr):
     sock.settimeout(POLL_TIMEOUT_S)
-    prev_state = None
-    last_rx    = time.monotonic()
+    prev_state     = None
+    last_rx        = time.monotonic()
+    last_keepalive = time.monotonic()
 
     _write_timeline("Stream started")
     print("\nStreaming. Ctrl+C to stop.\n")
 
     try:
         while True:
+            # --- Keepalive: re-send HELLO every KEEPALIVE_INTERVAL_S ---
+            now = time.monotonic()
+            if now - last_keepalive >= KEEPALIVE_INTERVAL_S:
+                sock.sendto(HELLO_MSG, ds_addr)
+                last_keepalive = now
+
             # --- Receive ---
             try:
                 data, _ = sock.recvfrom(PACKET_SIZE + 32)
@@ -278,6 +286,10 @@ def receive_loop(sock):
                     print(msg)
                     _write_timeline(msg)
                     return
+                continue
+
+            # --- Silently discard ACK replies to our keepalive HELLOs ---
+            if data == ACK_MSG:
                 continue
 
             # --- Parse ---
@@ -349,7 +361,7 @@ def main():
 
         print(f"Connected to 3DS at {ds_ip}:{ds_port}")
         _write_timeline(f"Connected to 3DS at {ds_ip}:{ds_port}")
-        receive_loop(sock)
+        receive_loop(sock, (ds_ip, ds_port))
 
     except KeyboardInterrupt:
         pass

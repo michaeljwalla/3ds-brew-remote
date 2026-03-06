@@ -85,13 +85,15 @@ enum AppState
 	STATE_STREAMING,
 };
 
-static int              g_sock        = -1;
-static sockaddr_in      g_pcAddr      = {};
-static AppState         g_state       = STATE_WAITING_WIFI;
-static bool             g_cppPresent  = false;
-static bool             g_gyroReady   = false;
-static float            g_gyroCoeff   = 0.0f;  // raw * coeff = dps
-static bool             g_accelReady  = false;
+static int              g_sock           = -1;
+static sockaddr_in      g_pcAddr         = {};
+static AppState         g_state          = STATE_WAITING_WIFI;
+static bool             g_cppPresent     = false;
+static bool             g_gyroReady      = false;
+static float            g_gyroCoeff      = 0.0f;  // raw / coeff = dps
+static bool             g_accelReady     = false;
+static u64              g_lastHelloMs    = 0;      // osGetTime() of last PC keepalive
+static constexpr u64    HELLO_TIMEOUT_MS = 30000;  // drop back to listening after 30s
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -170,7 +172,9 @@ static void updateBottomScreen ()
 	case STATE_STREAMING:
 		std::printf ("\x1b[32;1mStreaming to:\n\n"
 		             "  \x1b[37;1m%s\n\n"
-		             "\x1b[37;1mPress HOME to exit.",
+		             "\x1b[37;1mPress HOME to exit.\n\n"
+		             "\x1b[36;1mTip: you can drag on\n"
+		             "the touchpad here :)",
 		    inet_ntoa (g_pcAddr.sin_addr));
 		break;
 	}
@@ -360,7 +364,8 @@ static void controllerTick ()
 
 		if (n == HELLO_LEN && std::memcmp (buf, HELLO_MSG, HELLO_LEN) == 0)
 		{
-			g_pcAddr = from;
+			g_pcAddr      = from;
+			g_lastHelloMs = osGetTime ();
 			sendto (g_sock, ACK_MSG, ACK_LEN, 0,
 			    reinterpret_cast<const sockaddr *> (&from), fromLen);
 
@@ -375,8 +380,34 @@ static void controllerTick ()
 	}
 
 	case STATE_STREAMING:
+	{
+		// Check for keepalive HELLO from PC (non-blocking, socket is O_NONBLOCK)
+		char        buf[32]  = {};
+		sockaddr_in from     = {};
+		socklen_t   fromLen  = sizeof (from);
+		int n = recvfrom (g_sock, buf, (int)sizeof (buf) - 1, 0,
+		    reinterpret_cast<sockaddr *> (&from), &fromLen);
+		if (n == HELLO_LEN && std::memcmp (buf, HELLO_MSG, HELLO_LEN) == 0)
+		{
+			g_lastHelloMs = osGetTime ();
+			g_pcAddr      = from;  // update in case receiver restarted on a new port
+			sendto (g_sock, ACK_MSG, ACK_LEN, 0,
+			    reinterpret_cast<const sockaddr *> (&from), fromLen);
+			info ("Connection established (%s)\n", inet_ntoa (from.sin_addr));
+		}
+
+		// Timeout: if no keepalive for 30s, stop streaming and wait for reconnect
+		if (osGetTime () - g_lastHelloMs > HELLO_TIMEOUT_MS)
+		{
+			info ("PC timed out - waiting for reconnect\n");
+			g_state = STATE_LISTENING;
+			updateBottomScreen ();
+			break;
+		}
+
 		sendInputPacket ();
 		break;
+	}
 	}
 }
 
