@@ -2,15 +2,24 @@
 // Streams all 3DS inputs as UDP packets to a PC running receiver.py.
 //
 // Protocol: see Controller/pc/protocol.py
-// Packet layout (22 bytes, big-endian):
-//   [0-1]  Magic     0x3D 0x53
-//   [2]    Version   1
-//   [3]    cpp_present (0 or 1)
-//   [4-7]  Circle pad X  (float, -1..+1)
-//   [8-11] Circle pad Y  (float, -1..+1)
+// Packet layout (55 bytes, big-endian):
+//   [0-1]   Magic        0x3D 0x53
+//   [2]     Version      2
+//   [3]     cpp_present  (0 or 1)
+//   [4-7]   Circle pad X (float, -1..+1)
+//   [8-11]  Circle pad Y (float, -1..+1)
 //   [12-15] CPP/C-stick X (float, -1..+1)
 //   [16-19] CPP/C-stick Y (float, -1..+1)
 //   [20-21] Button bitmask (uint16)
+//   [22]    touch_active  (0 or 1)
+//   [23-26] touch_x       (float, 0..1, px / 319)
+//   [27-30] touch_y       (float, 0..1, py / 239)
+//   [31-34] gyro_x        (float, dps, roll)
+//   [35-38] gyro_y        (float, dps, pitch)
+//   [39-42] gyro_z        (float, dps, yaw)
+//   [43-46] accel_x       (float, g-force, raw / 512)
+//   [47-50] accel_y       (float, g-force, raw / 512)
+//   [51-54] accel_z       (float, g-force, raw / 512)
 //
 // Button bits: A=0 B=1 X=2 Y=3 UP=4 DOWN=5 LEFT=6 RIGHT=7
 //              L=8 R=9 ZL=10 ZR=11 SELECT=12 START=13
@@ -34,11 +43,15 @@
 // Protocol constants
 // ---------------------------------------------------------------------------
 
-static constexpr uint16_t CTRL_PORT    = 6000;
-static constexpr uint8_t  MAGIC_0      = 0x3D;
-static constexpr uint8_t  MAGIC_1      = 0x53;
-static constexpr uint8_t  PROTO_VER    = 1;
-static constexpr int      PACKET_SIZE  = 22;
+static constexpr uint16_t CTRL_PORT   = 6000;
+static constexpr uint8_t  MAGIC_0     = 0x3D;
+static constexpr uint8_t  MAGIC_1     = 0x53;
+static constexpr uint8_t  PROTO_VER   = 2;
+static constexpr int      PACKET_SIZE = 55;
+
+static constexpr float TOUCH_NORM_X = 1.0f / 319.0f;  // px / 319 -> 0..1
+static constexpr float TOUCH_NORM_Y = 1.0f / 239.0f;  // py / 239 -> 0..1
+static constexpr float ACCEL_NORM   = 1.0f / 512.0f;  // 512 LSB per g
 
 static const char HELLO_MSG[] = "HELLO_3DS";
 static const char ACK_MSG[]   = "ACK_3DS";
@@ -72,10 +85,13 @@ enum AppState
 	STATE_STREAMING,
 };
 
-static int              g_sock      = -1;
-static sockaddr_in      g_pcAddr    = {};
-static AppState         g_state     = STATE_WAITING_WIFI;
-static bool             g_cppPresent = false;
+static int              g_sock        = -1;
+static sockaddr_in      g_pcAddr      = {};
+static AppState         g_state       = STATE_WAITING_WIFI;
+static bool             g_cppPresent  = false;
+static bool             g_gyroReady   = false;
+static float            g_gyroCoeff   = 0.0f;  // raw * coeff = dps
+static bool             g_accelReady  = false;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -209,9 +225,11 @@ static void sendInputPacket ()
 	// platform::loop() already called hidScanInput() this frame
 	u32 kHeld = hidKeysHeld ();
 
+	// --- Circle pad ---
 	circlePosition circle = {};
 	hidCircleRead (&circle);
 
+	// --- CPP / C-stick ---
 	circlePosition cstick = {};
 	if (g_cppPresent)
 	{
@@ -219,12 +237,13 @@ static void sendInputPacket ()
 		irrstCstickRead (&cstick);
 	}
 
-	// Normalize: libctru range is roughly ±155
+	// Normalize circle pad: libctru range is roughly ±155
 	float cx    = clampf ((float)circle.dx / 155.0f, -1.0f, 1.0f);
 	float cy    = clampf ((float)circle.dy / 155.0f, -1.0f, 1.0f);
 	float cpp_x = clampf ((float)cstick.dx / 155.0f, -1.0f, 1.0f);
 	float cpp_y = clampf ((float)cstick.dy / 155.0f, -1.0f, 1.0f);
 
+	// --- Buttons ---
 	uint16_t buttons = 0;
 	if (kHeld & KEY_A)      buttons |= BTN_A;
 	if (kHeld & KEY_B)      buttons |= BTN_B;
@@ -241,23 +260,69 @@ static void sendInputPacket ()
 	if (kHeld & KEY_SELECT) buttons |= BTN_SELECT;
 	if (kHeld & KEY_START)  buttons |= BTN_START;
 
-	// Pack into 22-byte big-endian payload matching Python struct '!2sBBffffH'
+	// --- Touchscreen ---
+	bool         touch_active = (kHeld & KEY_TOUCH) != 0;
+	touchPosition touch       = {};
+	hidTouchRead (&touch);
+	float touch_x = touch_active ? clampf ((float)touch.px * TOUCH_NORM_X, 0.0f, 1.0f) : 0.0f;
+	float touch_y = touch_active ? clampf ((float)touch.py * TOUCH_NORM_Y, 0.0f, 1.0f) : 0.0f;
+
+	// --- Gyroscope (degrees per second) ---
+	float gyro_x = 0.0f, gyro_y = 0.0f, gyro_z = 0.0f;
+	if (g_gyroReady)
+	{
+		angularRate gyro = {};
+		hidGyroRead (&gyro);
+		gyro_x = (float)gyro.x / g_gyroCoeff;
+		gyro_y = (float)gyro.y / g_gyroCoeff;
+		gyro_z = (float)gyro.z / g_gyroCoeff;
+	}
+
+	// --- Accelerometer (g-force) ---
+	float accel_x = 0.0f, accel_y = 0.0f, accel_z = 0.0f;
+	if (g_accelReady)
+	{
+		accelVector accel = {};
+		hidAccelRead (&accel);
+		accel_x = (float)accel.x * ACCEL_NORM;
+		accel_y = (float)accel.y * ACCEL_NORM;
+		accel_z = (float)accel.z * ACCEL_NORM;
+	}
+
+	// --- Pack into 55-byte big-endian payload matching Python struct '!2sBBffffHBffffffff' ---
 	uint8_t  pkt[PACKET_SIZE];
-	uint32_t cx_be   = f32_to_be (cx);
-	uint32_t cy_be   = f32_to_be (cy);
-	uint32_t cppx_be = f32_to_be (cpp_x);
-	uint32_t cppy_be = f32_to_be (cpp_y);
-	uint16_t btn_be  = htons (buttons);
+	uint32_t cx_be       = f32_to_be (cx);
+	uint32_t cy_be       = f32_to_be (cy);
+	uint32_t cppx_be     = f32_to_be (cpp_x);
+	uint32_t cppy_be     = f32_to_be (cpp_y);
+	uint16_t btn_be      = htons (buttons);
+	uint32_t touch_x_be  = f32_to_be (touch_x);
+	uint32_t touch_y_be  = f32_to_be (touch_y);
+	uint32_t gyro_x_be   = f32_to_be (gyro_x);
+	uint32_t gyro_y_be   = f32_to_be (gyro_y);
+	uint32_t gyro_z_be   = f32_to_be (gyro_z);
+	uint32_t accel_x_be  = f32_to_be (accel_x);
+	uint32_t accel_y_be  = f32_to_be (accel_y);
+	uint32_t accel_z_be  = f32_to_be (accel_z);
 
 	pkt[0] = MAGIC_0;
 	pkt[1] = MAGIC_1;
 	pkt[2] = PROTO_VER;
 	pkt[3] = g_cppPresent ? 1 : 0;
-	std::memcpy (pkt + 4,  &cx_be,   4);
-	std::memcpy (pkt + 8,  &cy_be,   4);
-	std::memcpy (pkt + 12, &cppx_be, 4);
-	std::memcpy (pkt + 16, &cppy_be, 4);
-	std::memcpy (pkt + 20, &btn_be,  2);
+	std::memcpy (pkt + 4,  &cx_be,      4);
+	std::memcpy (pkt + 8,  &cy_be,      4);
+	std::memcpy (pkt + 12, &cppx_be,    4);
+	std::memcpy (pkt + 16, &cppy_be,    4);
+	std::memcpy (pkt + 20, &btn_be,     2);
+	pkt[22] = touch_active ? 1 : 0;
+	std::memcpy (pkt + 23, &touch_x_be, 4);
+	std::memcpy (pkt + 27, &touch_y_be, 4);
+	std::memcpy (pkt + 31, &gyro_x_be,  4);
+	std::memcpy (pkt + 35, &gyro_y_be,  4);
+	std::memcpy (pkt + 39, &gyro_z_be,  4);
+	std::memcpy (pkt + 43, &accel_x_be, 4);
+	std::memcpy (pkt + 47, &accel_y_be, 4);
+	std::memcpy (pkt + 51, &accel_z_be, 4);
 
 	sendto (g_sock, pkt, PACKET_SIZE, 0,
 	    reinterpret_cast<const sockaddr *> (&g_pcAddr), sizeof (g_pcAddr));
@@ -324,9 +389,7 @@ int main ()
 	if (!platform::init ())
 		return EXIT_FAILURE;
 
-	// Try to init N3DS C-stick service (ir:rst).
-	// On success: cpp_present = true and ZL/ZR also come through HID.
-	// On failure (Old 3DS without CPP): silently skip.
+	// --- C-stick / Circle Pad Pro ---
 	if (R_SUCCEEDED (irrstInit ()))
 	{
 		g_cppPresent = true;
@@ -337,7 +400,40 @@ int main ()
 		info ("No C-stick detected (O3DS)\n");
 	}
 
-	info ("3DS Remote Controller ready\n");
+	// --- Gyroscope ---
+	if (R_SUCCEEDED (HIDUSER_EnableGyroscope ()))
+	{
+		float coeff = 0.0f;
+		if (R_SUCCEEDED (HIDUSER_GetGyroscopeRawToDpsCoefficient (&coeff)) && coeff != 0.0f)
+		{
+			g_gyroCoeff = coeff;
+			g_gyroReady = true;
+			info ("Gyroscope enabled (coeff=%.5f)\n", g_gyroCoeff);
+		}
+		else
+		{
+			info ("Gyroscope: failed to get DPS coefficient\n");
+			HIDUSER_DisableGyroscope ();
+		}
+	}
+	else
+	{
+		info ("Gyroscope not available\n");
+	}
+
+	// --- Accelerometer ---
+	if (R_SUCCEEDED (HIDUSER_EnableAccelerometer ()))
+	{
+		g_accelReady = true;
+		info ("Accelerometer enabled\n");
+	}
+	else
+	{
+		info ("Accelerometer not available\n");
+	}
+
+	info ("3DS Remote Controller ready (protocol v%u, %d-byte packets)\n",
+	    (unsigned)PROTO_VER, PACKET_SIZE);
 	info ("Waiting for WiFi...\n");
 
 	updateStatusBar ();
@@ -351,9 +447,12 @@ int main ()
 		platform::render ();
 	}
 
+	if (g_accelReady)
+		HIDUSER_DisableAccelerometer ();
+	if (g_gyroReady)
+		HIDUSER_DisableGyroscope ();
 	if (g_cppPresent)
 		irrstExit ();
-
 	if (g_sock >= 0)
 		close (g_sock);
 

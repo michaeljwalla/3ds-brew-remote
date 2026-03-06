@@ -38,7 +38,6 @@ u32             *s_socuBuffer = nullptr;
 platform::Mutex  s_acuFence;
 
 bool s_backlight = true;
-unsigned s_buttons = 0;
 
 aptHookCookie s_aptHookCookie;
 
@@ -191,24 +190,6 @@ bool platform::loop ()
 	startNetwork ();
 
 	hidScanInput ();
-
-	auto const kDown = hidKeysDown ();
-	auto const kHeld = hidKeysHeld ();
-	auto const kUp   = hidKeysUp ();
-
-	// Backlight toggle via SELECT alone (same as ftpd, avoids Rosalina conflict)
-	if (kDown == KEY_SELECT && kHeld == KEY_SELECT)
-		s_buttons = KEY_SELECT;
-	else if (kUp & KEY_SELECT)
-	{
-		if (s_buttons == KEY_SELECT)
-		{
-			s_backlight = !s_backlight;
-			enableBacklight (s_backlight);
-		}
-	}
-	else
-		s_buttons |= kHeld;
 
 	return true;
 }
