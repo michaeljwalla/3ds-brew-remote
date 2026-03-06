@@ -64,8 +64,8 @@ if(BANNERTOOL AND MAKEROM)
     add_custom_command(
         OUTPUT ${CIA_DIR}/icon.bin
         COMMAND ${BANNERTOOL} makesmdh
-            -s "3DS Remote"
-            -l "3DS Remote Controller"
+            -s "3DS Remote Controller"
+            -l "3DS - Wireless Remote Client v2"
             -p "mjw"
             -i ${META_DIR}/icon.png
             -o ${CIA_DIR}/icon.bin
