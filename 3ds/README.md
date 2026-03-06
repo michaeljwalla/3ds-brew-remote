@@ -2,7 +2,7 @@
 
 ## Setup
 
-First, ensure your development environment is configured:
+First, ensure your development environment is configured (put export variables here then run this):
 
 ```bash
 source ~/.bashrc
