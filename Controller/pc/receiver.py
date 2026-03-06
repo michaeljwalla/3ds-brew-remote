@@ -48,7 +48,7 @@ def _write_timeline(line):
 # ---------------------------------------------------------------------------
 # Table rendering
 #
-# Layout (W=46, 15 lines):
+# Layout (W=46, 22 lines):
 #
 #   +--------------------------------------------+   line  1
 #   |         3DS REMOTE CONTROLLER              |   line  2
@@ -65,6 +65,13 @@ def _write_timeline(line):
 #   +--------------------------------------------+   line 13
 #   |  SELECT [X]                   START [ ]    |   line 14
 #   +--------------------------------------------+   line 15
+#   |  TOUCH: [YES]   X: 0.512   Y: 0.341        |   line 16
+#   +----------------------+---------------------+   line 17
+#   |  GYRO (dps)          |  ACCEL (g)          |   line 18
+#   |  X :    +48.000      |  X :   +0.150       |   line 19
+#   |  Y :    -32.000      |  Y :   -0.120       |   line 20
+#   |  Z :    +20.000      |  Z :   +0.980       |   line 21
+#   +--------------------------------------------+   line 22
 #
 # Column widths:
 #   Full inner:  44  (W - 2 border chars)
@@ -73,7 +80,7 @@ def _write_timeline(line):
 # ---------------------------------------------------------------------------
 
 TABLE_WIDTH  = 46
-TABLE_LINES  = 15
+TABLE_LINES  = 22
 _INNER       = TABLE_WIDTH - 2   # 44
 _A_LEFT      = 22
 _A_RIGHT     = 21
@@ -124,6 +131,22 @@ def _render(state):
     lines.append('|' + sel + ' ' * mid + sta + '|')
     lines.append(_SEP)
 
+    # Touch row
+    touch_state = 'YES' if state['touch_active'] else ' NO'
+    touch_line  = f'  TOUCH: [{touch_state}]   X: {state["touch_x"]:.3f}   Y: {state["touch_y"]:.3f}'
+    lines.append('|' + _p(touch_line, _INNER) + '|')
+
+    # Gyro / Accel section
+    lines.append(_SEP2)
+    lines.append('|' + _p('  GYRO (dps)', _A_LEFT) + '|' + _p('  ACCEL (g)', _A_RIGHT) + '|')
+    for axis, g_key, a_key in (('X', 'gyro_x', 'accel_x'),
+                                ('Y', 'gyro_y', 'accel_y'),
+                                ('Z', 'gyro_z', 'accel_z')):
+        g_str = f'  {axis} :  {state[g_key]:+9.3f}'
+        a_str = f'  {axis} :  {state[a_key]:+7.4f}'
+        lines.append('|' + _p(g_str, _A_LEFT) + '|' + _p(a_str, _A_RIGHT) + '|')
+    lines.append(_SEP)
+
     assert len(lines) == TABLE_LINES, f"Table line count mismatch: {len(lines)}"
     return lines
 
@@ -146,13 +169,25 @@ def _display(state):
 # State parsing and diffing
 # ---------------------------------------------------------------------------
 
-def _parse(cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask):
+def _parse(cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask,
+           touch_active, touch_x, touch_y,
+           gyro_x, gyro_y, gyro_z,
+           accel_x, accel_y, accel_z):
     state = {
         'circle_x':    cx,
         'circle_y':    cy,
         'cpp_x':       cpp_x,
         'cpp_y':       cpp_y,
         'cpp_present': cpp_present,
+        'touch_active': touch_active,
+        'touch_x':     touch_x,
+        'touch_y':     touch_y,
+        'gyro_x':      gyro_x,
+        'gyro_y':      gyro_y,
+        'gyro_z':      gyro_z,
+        'accel_x':     accel_x,
+        'accel_y':     accel_y,
+        'accel_z':     accel_z,
     }
     for name, mask in BUTTON_NAMES:
         state[name] = bool(buttons_mask & mask)
@@ -160,7 +195,12 @@ def _parse(cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask):
 
 
 def _diff(prev, curr):
-    analog = {'circle_x', 'circle_y', 'cpp_x', 'cpp_y'}
+    analog = {
+        'circle_x', 'circle_y', 'cpp_x', 'cpp_y',
+        'touch_x', 'touch_y',
+        'gyro_x', 'gyro_y', 'gyro_z',
+        'accel_x', 'accel_y', 'accel_z',
+    }
     changes = []
     for key, new in curr.items():
         old = prev.get(key)
@@ -176,8 +216,12 @@ def _diff(prev, curr):
 def _fmt(key, val):
     if val is None:
         return '?'
-    if key in ('circle_x', 'circle_y', 'cpp_x', 'cpp_y'):
+    if key in ('circle_x', 'circle_y', 'cpp_x', 'cpp_y', 'touch_x', 'touch_y'):
         return f'{val:+.3f}'
+    if key in ('gyro_x', 'gyro_y', 'gyro_z'):
+        return f'{val:+.1f} dps'
+    if key in ('accel_x', 'accel_y', 'accel_z'):
+        return f'{val:+.4f} g'
     if isinstance(val, bool):
         return 'PRESSED ' if val else 'released'
     return str(val)
@@ -238,18 +282,24 @@ def receive_loop(sock):
 
             # --- Parse ---
             try:
-                cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask = unpack_input(data)
+                (cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask,
+                 touch_active, touch_x, touch_y,
+                 gyro_x, gyro_y, gyro_z,
+                 accel_x, accel_y, accel_z) = unpack_input(data)
             except ValueError:
                 continue
 
-            curr = _parse(cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask)
+            curr = _parse(cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask,
+                          touch_active, touch_x, touch_y,
+                          gyro_x, gyro_y, gyro_z,
+                          accel_x, accel_y, accel_z)
 
             # --- Timeline: log changes only ---
             if prev_state is None:
                 _write_timeline("Initial state received")
             else:
                 for key, old, new in _diff(prev_state, curr):
-                    _write_timeline(f"  {key:<12}  {_fmt(key, old):>10}  ->  {_fmt(key, new)}")
+                    _write_timeline(f"  {key:<12}  {_fmt(key, old):>14}  ->  {_fmt(key, new)}")
 
             # --- Display: update every packet ---
             _display(curr)
