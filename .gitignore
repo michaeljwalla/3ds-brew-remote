@@ -4,5 +4,6 @@ out
 __pycache__/
 build/
 timeline.txt
-3ds/
+CMakeFiles/
+CMakeCache.txt
 .venv/
