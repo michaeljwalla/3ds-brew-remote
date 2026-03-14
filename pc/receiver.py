@@ -40,10 +40,18 @@ TIMELINE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'timeli
 def _ts():
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
+_timeline = None
+def set_timeline(fxn: "function"):
+    global _timeline
+    _timeline = fxn
+    return
 
 def _write_timeline(line):
-    with open(TIMELINE_FILE, 'a') as f:
-        f.write(f"[{_ts()}] {line}\n")
+    if not _timeline: return
+    _timeline(line)
+    return
+    # with open(TIMELINE_FILE, 'a') as f:
+    #     f.write(f"[{_ts()}] {line}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -235,19 +243,19 @@ def _fmt(key, val):
 def do_handshake(sock, ds_addr):
     sock.settimeout(HANDSHAKE_TIMEOUT_S)
     for attempt in range(1, HANDSHAKE_RETRIES + 1):
-        print(f"  [{attempt}/{HANDSHAKE_RETRIES}] Sending HELLO to {ds_addr[0]}:{ds_addr[1]} ...")
+        _write_timeline(f"  [{attempt}/{HANDSHAKE_RETRIES}] Sending HELLO to {ds_addr[0]}:{ds_addr[1]} ...")
         _write_timeline(f"Handshake attempt {attempt}/{HANDSHAKE_RETRIES} -> {ds_addr[0]}:{ds_addr[1]}")
         sock.sendto(HELLO_MSG, ds_addr)
         try:
             data, addr = sock.recvfrom(64)
             if data == ACK_MSG:
-                print(f"  ACK received from {addr[0]}:{addr[1]}")
+                _write_timeline(f"  ACK received from {addr[0]}:{addr[1]}")
                 _write_timeline(f"Handshake ACK from {addr[0]}:{addr[1]}")
                 return True
             else:
-                print(f"  Unexpected response: {data!r} — ignoring")
+                _write_timeline(f"  Unexpected response: {data!r} — ignoring")
         except socket.timeout:
-            print("  Timed out.")
+            _write_timeline("  Timed out.")
             _write_timeline(f"Handshake attempt {attempt} timed out")
     return False
 
@@ -256,14 +264,14 @@ def do_handshake(sock, ds_addr):
 # Receive loop
 # ---------------------------------------------------------------------------
 
-def receive_loop(sock, ds_addr):
+def receive_loop(sock, ds_addr, displaylive=True):
     sock.settimeout(POLL_TIMEOUT_S)
     prev_state     = None
     last_rx        = time.monotonic()
     last_keepalive = time.monotonic()
 
     _write_timeline("Stream started")
-    print("\nStreaming. Ctrl+C to stop.\n")
+    _write_timeline("\nStreaming. Ctrl+C to stop.\n")
 
     try:
         while True:
@@ -283,7 +291,6 @@ def receive_loop(sock, ds_addr):
                     if _table_active:
                         sys.stdout.write('\n')
                     msg = f"No input for {AUTO_TERMINATE_S:.0f}s — auto-terminating."
-                    print(msg)
                     _write_timeline(msg)
                     return
                 continue
@@ -306,15 +313,15 @@ def receive_loop(sock, ds_addr):
                           gyro_x, gyro_y, gyro_z,
                           accel_x, accel_y, accel_z)
 
-            # --- Timeline: log changes only ---
-            if prev_state is None:
-                _write_timeline("Initial state received")
-            else:
-                for key, old, new in _diff(prev_state, curr):
-                    _write_timeline(f"  {key:<12}  {_fmt(key, old):>14}  ->  {_fmt(key, new)}")
+            # # --- Timeline: log changes only ---
+            # if prev_state is None:
+            #     _write_timeline("Initial state received")
+            # else:
+            #     for key, old, new in _diff(prev_state, curr):
+            #         _write_timeline(f"  {key:<12}  {_fmt(key, old):>14}  ->  {_fmt(key, new)}")
 
             # --- Display: update every packet ---
-            _display(curr)
+            if displaylive: _display(curr)
             prev_state = curr
 
     except KeyboardInterrupt:
@@ -325,19 +332,19 @@ def receive_loop(sock, ds_addr):
 # Entry point
 # ---------------------------------------------------------------------------
 
-def main():
-    print("=== 3DS Remote Controller - Receiver ===\n")
+def main(ip:str=None, port: str=DEFAULT_3DS_PORT, listen: str=DEFAULT_PC_PORT, displaylive=False)->int:
+    _write_timeline("=== 3DS Remote Controller - Receiver ===\n")
     _write_timeline("=== Session started ===")
 
-    ds_ip = input("3DS IP address        : ").strip()
+    ds_ip = ip or input("3DS IP address        : ").strip()
     if not ds_ip:
-        print("No IP provided. Exiting.")
-        sys.exit(1)
+        _write_timeline("No IP provided. Exiting.")
+        return 1
 
-    raw = input(f"3DS port       [{DEFAULT_3DS_PORT}] : ").strip()
+    raw = port or input(f"3DS port       [{DEFAULT_3DS_PORT}] : ").strip()
     ds_port = int(raw) if raw else DEFAULT_3DS_PORT
 
-    raw = input(f"PC listen port [{DEFAULT_PC_PORT}] : ").strip()
+    raw = listen or input(f"PC listen port [{DEFAULT_PC_PORT}] : ").strip()
     pc_port = int(raw) if raw else DEFAULT_PC_PORT
 
     _write_timeline(f"Targeting 3DS at {ds_ip}:{ds_port}, listening on :{pc_port}")
@@ -346,22 +353,22 @@ def main():
     try:
         sock.bind(('', pc_port))
     except OSError as e:
-        print(f"\nFailed to bind port {pc_port}: {e}")
+        _write_timeline(f"\nFailed to bind port {pc_port}: {e}")
         sys.exit(1)
 
-    print(f"\nListening on :{pc_port}")
-    print(f"Attempting handshake with {ds_ip}:{ds_port} ...\n")
+    _write_timeline(f"\nListening on :{pc_port}")
+    _write_timeline(f"Attempting handshake with {ds_ip}:{ds_port} ...\n")
 
     try:
         if not do_handshake(sock, (ds_ip, ds_port)):
             msg = f"Handshake failed after {HANDSHAKE_RETRIES} attempts."
-            print(msg)
+            _write_timeline(msg)
             _write_timeline(msg)
             sys.exit(1)
 
-        print(f"Connected to 3DS at {ds_ip}:{ds_port}")
         _write_timeline(f"Connected to 3DS at {ds_ip}:{ds_port}")
-        receive_loop(sock, (ds_ip, ds_port))
+        _write_timeline(f"Connected to 3DS at {ds_ip}:{ds_port}")
+        receive_loop(sock, (ds_ip, ds_port), displaylive=displaylive)
 
     except KeyboardInterrupt:
         pass
@@ -373,4 +380,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    set_timeline(print)
+    main(displaylive=True)
