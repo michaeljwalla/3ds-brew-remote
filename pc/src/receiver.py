@@ -19,12 +19,18 @@ import sys
 import time
 from datetime import datetime
 
-from .protocol import (
-    ACK_MSG, BUTTON_NAMES, DEFAULT_3DS_PORT, DEFAULT_PC_PORT,
-    HELLO_MSG, PACKET_SIZE, unpack_input,
-)
+if __name__ == "__main__":
+    from protocol import (
+        ACK_MSG, BUTTON_NAMES, DEFAULT_3DS_PORT, DEFAULT_PC_PORT,
+        HELLO_MSG, PACKET_SIZE, unpack_input,
+    )
+else:
+    from .protocol import (
+        ACK_MSG, BUTTON_NAMES, DEFAULT_3DS_PORT, DEFAULT_PC_PORT,
+        HELLO_MSG, PACKET_SIZE, unpack_input,
+    ) 
 
-POLL_RATE = 1/60
+POLL_RATE = 1/120
 HANDSHAKE_TIMEOUT_S  = 0.5
 HANDSHAKE_RETRIES    = 30
 POLL_TIMEOUT_S       = 1.0   # socket poll interval; short so we can check auto-terminate
@@ -266,64 +272,73 @@ def do_handshake(sock, ds_addr):
 # Receive loop
 # ---------------------------------------------------------------------------
 
-def receive_loop(sock, ds_addr, displaylive=True):
+def receive_loop(sock, ds_addr, displaylive=True, stop_event: threading.Event = None):
+    """Run the receive loop until auto-terminate, KeyboardInterrupt, or stop_event is set."""
     sock.settimeout(POLL_TIMEOUT_S)
     prev_state     = None
     last_rx        = time.monotonic()
     last_keepalive = time.monotonic()
+    last_tick = time.monotonic()
 
-    _write_timeline("Stream started")
-    _write_timeline("\nStreaming. Ctrl+C to stop.\n")
+    while not (stop_event and stop_event.wait(0)):#POLL_RATE)):
+        # --- Keepalive: re-send HELLO every KEEPALIVE_INTERVAL_S ---
+        
+        now = time.monotonic()
+        last_tick = now
+        if now - last_keepalive >= KEEPALIVE_INTERVAL_S:
+            sock.sendto(HELLO_MSG, ds_addr)
+            last_keepalive = now
 
-    # --- Keepalive: re-send HELLO every KEEPALIVE_INTERVAL_S ---
-    now = time.monotonic()
-    if now - last_keepalive >= KEEPALIVE_INTERVAL_S:
-        sock.sendto(HELLO_MSG, ds_addr)
-        last_keepalive = now
+        # --- Receive ---
+        try:
+            data, _ = sock.recvfrom(PACKET_SIZE + 32)
+            last_rx = time.monotonic()
+        except socket.timeout:
+            idle = time.monotonic() - last_rx
+            if idle >= AUTO_TERMINATE_S:
+                if _table_active:
+                    sys.stdout.write('\n')
+                msg = f"No input for {AUTO_TERMINATE_S:.0f}s — auto-terminating."
+                _write_timeline(msg)
+                return
+            continue
+        except OSError:
+            # ICMP port-unreachable or other transient error — keep looping
+            continue
+        
 
-    # --- Receive ---
-    try:
-        data, _ = sock.recvfrom(PACKET_SIZE + 32)
-        last_rx = time.monotonic()
-    except socket.timeout:
-        idle = time.monotonic() - last_rx
-        if idle >= AUTO_TERMINATE_S:
-            if _table_active:
-                sys.stdout.write('\n')
-            msg = f"No input for {AUTO_TERMINATE_S:.0f}s — auto-terminating."
-            _write_timeline(msg)
-            return
-        return
+        # --- Silently discard ACK replies to our keepalive HELLOs ---
+        if data == ACK_MSG:
+            continue
 
-    # --- Silently discard ACK replies to our keepalive HELLOs ---
-    if data == ACK_MSG:
-        return
+        
+        # --- Parse ---
+        try:
+            (cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask,
+                touch_active, touch_x, touch_y,
+                gyro_x, gyro_y, gyro_z,
+                accel_x, accel_y, accel_z) = unpack_input(data)
+        except ValueError:
+            continue
 
-    # --- Parse ---
-    try:
-        (cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask,
-            touch_active, touch_x, touch_y,
-            gyro_x, gyro_y, gyro_z,
-            accel_x, accel_y, accel_z) = unpack_input(data)
-    except ValueError:
-        return
+        
+        curr = _parse(cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask,
+                        touch_active, touch_x, touch_y,
+                        gyro_x, gyro_y, gyro_z,
+                        accel_x, accel_y, accel_z)
 
-    curr = _parse(cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask,
-                    touch_active, touch_x, touch_y,
-                    gyro_x, gyro_y, gyro_z,
-                    accel_x, accel_y, accel_z)
+        # # --- Timeline: log changes only ---
+        # if prev_state is None:
+        #     _write_timeline("Initial state received")
+        # else:
+        #     for key, old, new in _diff(prev_state, curr):
+        #         _write_timeline(f"  {key:<12}  {_fmt(key, old):>14}  ->  {_fmt(key, new)}")
 
-    # # --- Timeline: log changes only ---
-    # if prev_state is None:
-    #     _write_timeline("Initial state received")
-    # else:
-    #     for key, old, new in _diff(prev_state, curr):
-    #         _write_timeline(f"  {key:<12}  {_fmt(key, old):>14}  ->  {_fmt(key, new)}")
-
-    # --- Display: update every packet ---
-    if displaylive: _display(curr)
-    prev_state = curr
-    return
+        # --- Display: update every packet ---
+        if displaylive: _display(curr)
+        prev_state = curr
+        
+        continue
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +380,10 @@ def main(ip:str=None, port: str=DEFAULT_3DS_PORT, listen: str=DEFAULT_PC_PORT, d
             return (1)
 
         _write_timeline(f"Connected to 3DS at {ds_ip}:{ds_port}")
-        while True: receive_loop(sock, (ds_ip, ds_port), displaylive=displaylive)
+
+        _write_timeline("Stream started")
+        _write_timeline("\nStreaming. Ctrl+C to stop.\n")
+        receive_loop(sock, (ds_ip, ds_port), displaylive=displaylive)
 
     except KeyboardInterrupt:
         pass
@@ -376,46 +394,38 @@ def main(ip:str=None, port: str=DEFAULT_3DS_PORT, listen: str=DEFAULT_PC_PORT, d
         sock.close()
 
 _threadloop = None
-_continue = threading.Event()
+_stop_event  = threading.Event()
 
 def stop():
     global _threadloop
     if _threadloop:
-        _continue.clear()
-        _threadloop.cancel()
+        _stop_event.set()
+        _threadloop.join(timeout=POLL_TIMEOUT_S + 1.0)
         _threadloop = None
-
-def _loop(*args):
-    global _threadloop
-    if not _continue.is_set(): return
-    #
-    receive_loop(*args)
-    _threadloop = threading.Timer(POLL_RATE, _loop, args)
-    _threadloop.start()
-    #
-    return
+    _stop_event.clear()
 
 def start(ip:str, port:int=DEFAULT_3DS_PORT, listen:int=DEFAULT_PC_PORT, displayLive=False)->int:
     global _threadloop
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind(('', listen))
-        #
         if not do_handshake(sock, (ip, port)):
             msg = f"Handshake failed after {HANDSHAKE_RETRIES} attempts."
             _write_timeline(msg)
-            _write_timeline(msg)
-            return (1)
-
+            return 1
         _write_timeline(f"Connected to 3DS at {ip}:{port}")
-        # receive_loop(sock, (ip, port), displaylive=False)
-        # start(sock, (ip, port))
     except OSError as e:
-        _write_timeline(f"\nFailed to bind port {port}: {e}")
+        _write_timeline(f"\nFailed to bind port {listen}: {e}")
         return 1
-    (ip, port, listen)
-    _continue.set()
-    _loop(sock, (ip, port), displayLive)
+
+    _stop_event.clear()
+    _threadloop = threading.Thread(
+        target=receive_loop,
+        args=(sock, (ip, port), displayLive),
+        kwargs={'stop_event': _stop_event},
+        daemon=True,
+    )
+    _threadloop.start()
 
 if __name__ == '__main__':
     set_timeline(print)
