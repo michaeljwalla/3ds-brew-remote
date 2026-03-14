@@ -19,7 +19,7 @@ import sys
 import time
 from datetime import datetime
 
-from protocol import (
+from .protocol import (
     ACK_MSG, BUTTON_NAMES, DEFAULT_3DS_PORT, DEFAULT_PC_PORT,
     HELLO_MSG, PACKET_SIZE, unpack_input,
 )

@@ -25,7 +25,7 @@ import math
 import socket
 import time
 
-from protocol import (
+from .protocol import (
     ACK_MSG, BUTTON_NAMES, DEFAULT_3DS_PORT,
     HELLO_MSG, pack_input,
 )
