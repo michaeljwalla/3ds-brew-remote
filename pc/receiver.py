@@ -12,6 +12,7 @@ Prompts for the 3DS IP and port (shown on the 3DS top screen), then:
   4. Auto-terminates after 30 seconds of no valid input packets.
 """
 
+import threading
 import os
 import socket
 import sys
@@ -23,6 +24,7 @@ from protocol import (
     HELLO_MSG, PACKET_SIZE, unpack_input,
 )
 
+POLL_RATE = 1/60
 HANDSHAKE_TIMEOUT_S  = 0.5
 HANDSHAKE_RETRIES    = 30
 POLL_TIMEOUT_S       = 1.0   # socket poll interval; short so we can check auto-terminate
@@ -273,59 +275,56 @@ def receive_loop(sock, ds_addr, displaylive=True):
     _write_timeline("Stream started")
     _write_timeline("\nStreaming. Ctrl+C to stop.\n")
 
-    try:
-        while True:
-            # --- Keepalive: re-send HELLO every KEEPALIVE_INTERVAL_S ---
-            now = time.monotonic()
-            if now - last_keepalive >= KEEPALIVE_INTERVAL_S:
-                sock.sendto(HELLO_MSG, ds_addr)
-                last_keepalive = now
+    while True:
+        # --- Keepalive: re-send HELLO every KEEPALIVE_INTERVAL_S ---
+        now = time.monotonic()
+        if now - last_keepalive >= KEEPALIVE_INTERVAL_S:
+            sock.sendto(HELLO_MSG, ds_addr)
+            last_keepalive = now
 
-            # --- Receive ---
-            try:
-                data, _ = sock.recvfrom(PACKET_SIZE + 32)
-                last_rx = time.monotonic()
-            except socket.timeout:
-                idle = time.monotonic() - last_rx
-                if idle >= AUTO_TERMINATE_S:
-                    if _table_active:
-                        sys.stdout.write('\n')
-                    msg = f"No input for {AUTO_TERMINATE_S:.0f}s — auto-terminating."
-                    _write_timeline(msg)
-                    return
-                continue
+        # --- Receive ---
+        try:
+            data, _ = sock.recvfrom(PACKET_SIZE + 32)
+            last_rx = time.monotonic()
+        except socket.timeout:
+            idle = time.monotonic() - last_rx
+            if idle >= AUTO_TERMINATE_S:
+                if _table_active:
+                    sys.stdout.write('\n')
+                msg = f"No input for {AUTO_TERMINATE_S:.0f}s — auto-terminating."
+                _write_timeline(msg)
+                return
+            continue
 
-            # --- Silently discard ACK replies to our keepalive HELLOs ---
-            if data == ACK_MSG:
-                continue
+        # --- Silently discard ACK replies to our keepalive HELLOs ---
+        if data == ACK_MSG:
+            continue
 
-            # --- Parse ---
-            try:
-                (cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask,
-                 touch_active, touch_x, touch_y,
-                 gyro_x, gyro_y, gyro_z,
-                 accel_x, accel_y, accel_z) = unpack_input(data)
-            except ValueError:
-                continue
+        # --- Parse ---
+        try:
+            (cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask,
+                touch_active, touch_x, touch_y,
+                gyro_x, gyro_y, gyro_z,
+                accel_x, accel_y, accel_z) = unpack_input(data)
+        except ValueError:
+            continue
 
-            curr = _parse(cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask,
-                          touch_active, touch_x, touch_y,
-                          gyro_x, gyro_y, gyro_z,
-                          accel_x, accel_y, accel_z)
+        curr = _parse(cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask,
+                        touch_active, touch_x, touch_y,
+                        gyro_x, gyro_y, gyro_z,
+                        accel_x, accel_y, accel_z)
 
-            # # --- Timeline: log changes only ---
-            # if prev_state is None:
-            #     _write_timeline("Initial state received")
-            # else:
-            #     for key, old, new in _diff(prev_state, curr):
-            #         _write_timeline(f"  {key:<12}  {_fmt(key, old):>14}  ->  {_fmt(key, new)}")
+        # # --- Timeline: log changes only ---
+        # if prev_state is None:
+        #     _write_timeline("Initial state received")
+        # else:
+        #     for key, old, new in _diff(prev_state, curr):
+        #         _write_timeline(f"  {key:<12}  {_fmt(key, old):>14}  ->  {_fmt(key, new)}")
 
-            # --- Display: update every packet ---
-            if displaylive: _display(curr)
-            prev_state = curr
-
-    except KeyboardInterrupt:
-        pass
+        # --- Display: update every packet ---
+        if displaylive: _display(curr)
+        prev_state = curr
+    return
 
 
 # ---------------------------------------------------------------------------
@@ -333,6 +332,7 @@ def receive_loop(sock, ds_addr, displaylive=True):
 # ---------------------------------------------------------------------------
 
 def main(ip:str=None, port: str=DEFAULT_3DS_PORT, listen: str=DEFAULT_PC_PORT, displaylive=False)->int:
+    #
     _write_timeline("=== 3DS Remote Controller - Receiver ===\n")
     _write_timeline("=== Session started ===")
 
@@ -354,7 +354,7 @@ def main(ip:str=None, port: str=DEFAULT_3DS_PORT, listen: str=DEFAULT_PC_PORT, d
         sock.bind(('', pc_port))
     except OSError as e:
         _write_timeline(f"\nFailed to bind port {pc_port}: {e}")
-        sys.exit(1)
+        return (1)
 
     _write_timeline(f"\nListening on :{pc_port}")
     _write_timeline(f"Attempting handshake with {ds_ip}:{ds_port} ...\n")
@@ -363,12 +363,10 @@ def main(ip:str=None, port: str=DEFAULT_3DS_PORT, listen: str=DEFAULT_PC_PORT, d
         if not do_handshake(sock, (ds_ip, ds_port)):
             msg = f"Handshake failed after {HANDSHAKE_RETRIES} attempts."
             _write_timeline(msg)
-            _write_timeline(msg)
-            sys.exit(1)
+            return (1)
 
         _write_timeline(f"Connected to 3DS at {ds_ip}:{ds_port}")
-        _write_timeline(f"Connected to 3DS at {ds_ip}:{ds_port}")
-        receive_loop(sock, (ds_ip, ds_port), displaylive=displaylive)
+        while True: receive_loop(sock, (ds_ip, ds_port), displaylive=displaylive)
 
     except KeyboardInterrupt:
         pass
@@ -378,6 +376,32 @@ def main(ip:str=None, port: str=DEFAULT_3DS_PORT, listen: str=DEFAULT_PC_PORT, d
         _write_timeline("=== Session ended ===")
         sock.close()
 
+_threadloop = None
+def stop():
+    if _threadloop:
+        _threadloop.cancel()
+
+def start(ip:str, port:int=DEFAULT_3DS_PORT, listen:int=DEFAULT_PC_PORT)->int:
+    global _threadloop
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind(('', port))
+        #
+        if not do_handshake(sock, (ip, port)):
+            msg = f"Handshake failed after {HANDSHAKE_RETRIES} attempts."
+            _write_timeline(msg)
+            _write_timeline(msg)
+            return (1)
+
+        _write_timeline(f"Connected to 3DS at {ip}:{port}")
+        # receive_loop(sock, (ip, port), displaylive=False)
+        # start(sock, (ip, port))
+    except OSError as e:
+        _write_timeline(f"\nFailed to bind port {port}: {e}")
+        return 1
+    (ip, port, listen)
+    _threadloop = threading.Timer(POLL_RATE, receive_loop, (sock, (ip, port)))
+    _threadloop.start()
 
 if __name__ == '__main__':
     set_timeline(print)
