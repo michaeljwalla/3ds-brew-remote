@@ -275,55 +275,54 @@ def receive_loop(sock, ds_addr, displaylive=True):
     _write_timeline("Stream started")
     _write_timeline("\nStreaming. Ctrl+C to stop.\n")
 
-    while True:
-        # --- Keepalive: re-send HELLO every KEEPALIVE_INTERVAL_S ---
-        now = time.monotonic()
-        if now - last_keepalive >= KEEPALIVE_INTERVAL_S:
-            sock.sendto(HELLO_MSG, ds_addr)
-            last_keepalive = now
+    # --- Keepalive: re-send HELLO every KEEPALIVE_INTERVAL_S ---
+    now = time.monotonic()
+    if now - last_keepalive >= KEEPALIVE_INTERVAL_S:
+        sock.sendto(HELLO_MSG, ds_addr)
+        last_keepalive = now
 
-        # --- Receive ---
-        try:
-            data, _ = sock.recvfrom(PACKET_SIZE + 32)
-            last_rx = time.monotonic()
-        except socket.timeout:
-            idle = time.monotonic() - last_rx
-            if idle >= AUTO_TERMINATE_S:
-                if _table_active:
-                    sys.stdout.write('\n')
-                msg = f"No input for {AUTO_TERMINATE_S:.0f}s — auto-terminating."
-                _write_timeline(msg)
-                return
-            continue
+    # --- Receive ---
+    try:
+        data, _ = sock.recvfrom(PACKET_SIZE + 32)
+        last_rx = time.monotonic()
+    except socket.timeout:
+        idle = time.monotonic() - last_rx
+        if idle >= AUTO_TERMINATE_S:
+            if _table_active:
+                sys.stdout.write('\n')
+            msg = f"No input for {AUTO_TERMINATE_S:.0f}s — auto-terminating."
+            _write_timeline(msg)
+            return
+        return
 
-        # --- Silently discard ACK replies to our keepalive HELLOs ---
-        if data == ACK_MSG:
-            continue
+    # --- Silently discard ACK replies to our keepalive HELLOs ---
+    if data == ACK_MSG:
+        return
 
-        # --- Parse ---
-        try:
-            (cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask,
-                touch_active, touch_x, touch_y,
-                gyro_x, gyro_y, gyro_z,
-                accel_x, accel_y, accel_z) = unpack_input(data)
-        except ValueError:
-            continue
+    # --- Parse ---
+    try:
+        (cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask,
+            touch_active, touch_x, touch_y,
+            gyro_x, gyro_y, gyro_z,
+            accel_x, accel_y, accel_z) = unpack_input(data)
+    except ValueError:
+        return
 
-        curr = _parse(cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask,
-                        touch_active, touch_x, touch_y,
-                        gyro_x, gyro_y, gyro_z,
-                        accel_x, accel_y, accel_z)
+    curr = _parse(cx, cy, cpp_x, cpp_y, cpp_present, buttons_mask,
+                    touch_active, touch_x, touch_y,
+                    gyro_x, gyro_y, gyro_z,
+                    accel_x, accel_y, accel_z)
 
-        # # --- Timeline: log changes only ---
-        # if prev_state is None:
-        #     _write_timeline("Initial state received")
-        # else:
-        #     for key, old, new in _diff(prev_state, curr):
-        #         _write_timeline(f"  {key:<12}  {_fmt(key, old):>14}  ->  {_fmt(key, new)}")
+    # # --- Timeline: log changes only ---
+    # if prev_state is None:
+    #     _write_timeline("Initial state received")
+    # else:
+    #     for key, old, new in _diff(prev_state, curr):
+    #         _write_timeline(f"  {key:<12}  {_fmt(key, old):>14}  ->  {_fmt(key, new)}")
 
-        # --- Display: update every packet ---
-        if displaylive: _display(curr)
-        prev_state = curr
+    # --- Display: update every packet ---
+    if displaylive: _display(curr)
+    prev_state = curr
     return
 
 
@@ -377,15 +376,30 @@ def main(ip:str=None, port: str=DEFAULT_3DS_PORT, listen: str=DEFAULT_PC_PORT, d
         sock.close()
 
 _threadloop = None
-def stop():
-    if _threadloop:
-        _threadloop.cancel()
+_continue = threading.Event()
 
-def start(ip:str, port:int=DEFAULT_3DS_PORT, listen:int=DEFAULT_PC_PORT)->int:
+def stop():
+    global _threadloop
+    if _threadloop:
+        _continue.clear()
+        _threadloop.cancel()
+        _threadloop = None
+
+def _loop(*args):
+    global _threadloop
+    if not _continue.is_set(): return
+    #
+    receive_loop(*args)
+    _threadloop = threading.Timer(POLL_RATE, _loop, args)
+    _threadloop.start()
+    #
+    return
+
+def start(ip:str, port:int=DEFAULT_3DS_PORT, listen:int=DEFAULT_PC_PORT, displayLive=False)->int:
     global _threadloop
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind(('', port))
+        sock.bind(('', listen))
         #
         if not do_handshake(sock, (ip, port)):
             msg = f"Handshake failed after {HANDSHAKE_RETRIES} attempts."
@@ -400,8 +414,8 @@ def start(ip:str, port:int=DEFAULT_3DS_PORT, listen:int=DEFAULT_PC_PORT)->int:
         _write_timeline(f"\nFailed to bind port {port}: {e}")
         return 1
     (ip, port, listen)
-    _threadloop = threading.Timer(POLL_RATE, receive_loop, (sock, (ip, port)))
-    _threadloop.start()
+    _continue.set()
+    _loop(sock, (ip, port), displayLive)
 
 if __name__ == '__main__':
     set_timeline(print)
