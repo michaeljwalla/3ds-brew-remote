@@ -2,7 +2,7 @@
 
 This is a client-host communication tool that can turn a Nintendo 3DS into different types of remote-controlled devices.
 
-This is **NOT** a bluetooth tool; data is transmitted over **2.4GHz WiFi** via the **802.11b/g** protocol, which is then captured and processed as device input.
+This is **NOT** a bluetooth tool; data is transmitted via the **IEEE 802.11b/g** protocol (2.4GHz WiFi), which is then captured and processed as device input.
 
 Due to many controllers sharing similar inputs, I figured I'd make a tool that remaps inputs from one to emulate others.
 
@@ -40,6 +40,7 @@ Inputs are streamed over UDP at 60Hz, with the aforementioned data.\
 
 ### Installing Server / Capturer
 - (todo) make a real graphical interface and deploy to docker with xyz args
+- decide on if we want to make interaction shell a webpage, electron app, or something else
 
 # Building it Yourself
 - see `README.md` in [/3ds/](./3ds/)
