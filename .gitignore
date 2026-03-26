@@ -1,9 +1,7 @@
-3ds-examples
-out
 .vscode
 __pycache__/
 build/
-timeline.txt
 CMakeFiles/
 CMakeCache.txt
 .venv/
+TODO.txt
