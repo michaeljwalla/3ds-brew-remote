@@ -4,14 +4,15 @@
 #include <string_view>
 #include <sys/types.h>
 
-namespace {
-    static constexpr std::array<uint8_t, 2> MAGIC = { 0x3d, 0x53 };
-    static constexpr uint8_t VERSION = 2;
-    static constexpr std::array<uint16_t, 2> TOUCHSCREEN_DIMS = {320, 240};
-    //
-    static constexpr std::string_view HELLO_MSG = "HELLO_3DS";
-    static constexpr std::string_view ACK_MSG   = "ACK_3DS";
-}
+
+static constexpr std::array<uint8_t, 2> MAGIC = { 0x3d, 0x53 };
+static constexpr uint8_t VERSION = 2;
+static constexpr std::array<uint16_t, 2> TOUCHSCREEN_DIMS = {320, 240};
+static constexpr uint16_t PACKET_SIZE = 55;
+//
+static constexpr std::string_view HELLO_MSG = "HELLO_3DS";
+static constexpr std::string_view ACK_MSG   = "ACK_3DS";
+
 enum ButtonMask: uint16_t {
     A      = 1 << 0,
     B      = 1 << 1,
@@ -39,14 +40,18 @@ struct SocketPorts {
 
 //
 #pragma pack(push, 1)
-struct RawInput {         //55-bytes
-    uint8_t  magic[2];
-    uint8_t  field1;
-    uint8_t  field2;
-    float    floats1[4];
-    uint16_t field3;
-    uint8_t  field4;
-    float    floats2[8];
+struct RawInput {                                                                                                                         
+    uint8_t  magic[2];                                                                                                          
+    uint8_t  version;                                                                                                           
+    uint8_t  cpp_present;      //this false positives so use delta check
+    float    circle_pad[2];                                                                                      
+    float    circle_pad_pro[2];                                                                                        
+    uint16_t buttons;            
+    uint8_t  touch_active;                                                                                                       
+    float    touch[2];           
+    float    gyro[3];            
+    float    accel[3];                                                                                       
 };
 #pragma pack(pop)
 
+bool unpack_payload(const void* buf, size_t len, RawInput &out);
