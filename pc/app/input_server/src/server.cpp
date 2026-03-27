@@ -1,11 +1,13 @@
 #include "server.h"
 #include "protocol.h"
+#include "logger.h"
 
 #include <arpa/inet.h>
 #include <chrono>
 #include <cstring>
 #include <iostream>
 #include <netinet/in.h>
+#include <ostream>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -57,9 +59,7 @@ static bool do_handshake(int sockfd, const struct sockaddr_in& ds_addr) {
 }
 
 
-//main receiver loop
-void run_client(const Endpoint& ep) {
-    // Create UDP socket
+static void validate_socket(const Endpoint& ep, int& sockfd_out, sockaddr_in& pc_addr_out, sockaddr_in& ds_addr_out) {
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
         std::cerr << "Failed to create socket" << std::endl;
@@ -67,18 +67,16 @@ void run_client(const Endpoint& ep) {
     }
 
     // Bind to PC port
-    struct sockaddr_in pc_addr{};
+    sockaddr_in pc_addr{};
     pc_addr.sin_family = AF_INET;
     pc_addr.sin_addr.s_addr = INADDR_ANY;
     pc_addr.sin_port = htons(ep.Port_PC);
 
-    if (bind(sockfd, (const struct sockaddr*)&pc_addr, sizeof(pc_addr)) < 0) {
+    if (bind(sockfd, (const sockaddr*)&pc_addr, sizeof(pc_addr)) < 0) {
         std::cerr << "Failed to bind to port " << ep.Port_PC << std::endl;
         close(sockfd);
         return;
     }
-
-    std::cout << "Listening on port " << ep.Port_PC << std::endl;
 
     //build 3DS address
     struct sockaddr_in ds_addr{};
@@ -90,8 +88,21 @@ void run_client(const Endpoint& ep) {
         return;
     }
 
-    std::cout << "Connecting to 3DS at " << ep.IP_Address << ":" << ep.Port_3DS
-              << std::endl;
+    sockfd_out = sockfd;
+    pc_addr_out = pc_addr;
+    ds_addr_out = ds_addr;
+    return;
+}
+
+//main receiver runner
+void run_client(const Endpoint& ep) {
+    // Create UDP socket
+    int sockfd;
+    sockaddr_in pc_addr, ds_addr;
+    validate_socket(ep, sockfd, pc_addr, ds_addr);
+
+    std::cout << "Listening on port " << ep.Port_PC << std::endl;
+    std::cout << "Connecting to 3DS at " << ep.IP_Address << ":" << ep.Port_3DS << std::endl;
 
     if (!do_handshake(sockfd, ds_addr)) {
         close(sockfd);
