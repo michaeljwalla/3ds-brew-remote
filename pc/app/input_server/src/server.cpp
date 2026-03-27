@@ -19,10 +19,15 @@ static constexpr float POLL_TIMEOUT_S = 1.0f;
 static constexpr float AUTO_TERMINATE_S = 30.0f;
 static constexpr float KEEPALIVE_INTERVAL_S = 5.0f;
 
-
+// some of the ones used here
 static const auto endl = Logger::manip(std::endl);
 static const auto flush = Logger::manip(std::flush);
 static const auto hex = Logger::manip(std::hex);
+
+// states just for definite output/end
+static const LoggerState LOG_GOOD {0};
+static const LoggerState LOG_ERR {1};
+static const LoggerState& LOG_END = LoggerState::END;
 
 static void set_socket_timeout(int sockfd, float seconds) {
     struct timeval tv;
@@ -50,24 +55,23 @@ static bool do_handshake(int sockfd, const struct sockaddr_in& ds_addr, Logger& 
 
         if (n > 0 && (size_t)n == strlen(ACK_MSG) &&
             std::memcmp(buffer, ACK_MSG, strlen(ACK_MSG)) == 0) {
-            log << "Handshake successful: ACK received from "
+            log << LOG_GOOD <<"Handshake successful: ACK received from "
                       << inet_ntoa(reply_addr.sin_addr) << ":"
-                      << ntohs(reply_addr.sin_port) << endl;
+                      << ntohs(reply_addr.sin_port) << endl << LOG_END;
             return true;
         }
     }
 
-    std::cerr << "Handshake failed after " << HANDSHAKE_RETRIES << " attempts"
-              << std::endl;
+    log << LOG_ERR << "Handshake failed after " << HANDSHAKE_RETRIES << " attempts" << endl << LOG_END;
     return false;
 }
 
 
-static void validate_socket(const Endpoint& ep, int& sockfd_out, sockaddr_in& pc_addr_out, sockaddr_in& ds_addr_out) {
+static bool validate_socket(const Endpoint& ep, int& sockfd_out, sockaddr_in& pc_addr_out, sockaddr_in& ds_addr_out, Logger& log) {
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
-        std::cerr << "Failed to create socket" << std::endl;
-        return;
+        log << LOG_ERR << "Failed to create socket" << endl << LOG_END;
+        return false;
     }
 
     // Bind to PC port
@@ -77,9 +81,9 @@ static void validate_socket(const Endpoint& ep, int& sockfd_out, sockaddr_in& pc
     pc_addr.sin_port = htons(ep.Port_PC);
 
     if (bind(sockfd, (const sockaddr*)&pc_addr, sizeof(pc_addr)) < 0) {
-        std::cerr << "Failed to bind to port " << ep.Port_PC << std::endl;
+        log << LOG_ERR << "Failed to bind to port " << ep.Port_PC << endl << LOG_END;
         close(sockfd);
-        return;
+        return false;
     }
 
     //build 3DS address
@@ -87,15 +91,15 @@ static void validate_socket(const Endpoint& ep, int& sockfd_out, sockaddr_in& pc
     ds_addr.sin_family = AF_INET;
     ds_addr.sin_port = htons(ep.Port_3DS);
     if (inet_pton(AF_INET, ep.IP_Address.c_str(), &ds_addr.sin_addr) <= 0) {
-        std::cerr << "Invalid IP address: " << ep.IP_Address << std::endl;
+        log << LOG_ERR << "Invalid IP address: " << ep.IP_Address << endl << LOG_END;
         close(sockfd);
-        return;
+        return false;
     }
 
     sockfd_out = sockfd;
     pc_addr_out = pc_addr;
     ds_addr_out = ds_addr;
-    return;
+    return true;
 }
 
 
@@ -104,10 +108,12 @@ void run_client(const Endpoint& ep, Logger& log) {
     // Create UDP socket
     int sockfd;
     sockaddr_in pc_addr, ds_addr;
-    validate_socket(ep, sockfd, pc_addr, ds_addr);
+    if ( !validate_socket(ep, sockfd, pc_addr, ds_addr, log)) return;
 
+    log << LOG_GOOD;
     log << "Listening on port " << ep.Port_PC << endl;
     log << "Connecting to 3DS at " << ep.IP_Address << ":" << ep.Port_3DS << endl;
+    log << LOG_END;
 
     if (!do_handshake(sockfd, ds_addr, log)) {
         close(sockfd);
@@ -117,7 +123,7 @@ void run_client(const Endpoint& ep, Logger& log) {
     set_socket_timeout(sockfd, POLL_TIMEOUT_S);
     
     //loop read section
-    log << "Streaming input packets. Press Ctrl+C to stop." << endl;
+    log << LOG_GOOD << "Streaming input packets. Press Ctrl+C to stop." << endl << LOG_END;
 
     using Clock = std::chrono::steady_clock;
     auto last_rx = Clock::now();
@@ -149,8 +155,8 @@ void run_client(const Endpoint& ep, Logger& log) {
             // Timeout or other error
             std::chrono::duration<float> idle = now - last_rx;
             if (idle.count() >= AUTO_TERMINATE_S) {
-                log << "No input for " << AUTO_TERMINATE_S
-                          << " seconds. Terminating." << endl;
+                log << LOG_GOOD << "No input for " << AUTO_TERMINATE_S
+                          << " seconds. Terminating." << endl << LOG_END;
                 break;
             }
             continue;
@@ -171,16 +177,17 @@ void run_client(const Endpoint& ep, Logger& log) {
         ++packet_count;
 
         if (packet_count % 4 == 0) {  //print at 30hz
-            log << "\rPackets: " << packet_count
-                      << " | Circle: (" << input.circle_pad[0] << ", "
-                      << input.circle_pad[1] << ") | Buttons: 0x" << hex
-                      << input.buttons << std::dec << " | Touch: "
-                      << (input.touch_active ? "YES" : "NO") << "      "
-                      << flush;
+            log << LOG_GOOD
+                << "\rPackets: " << packet_count
+                << " | Circle: (" << input.circle_pad[0] << ", "
+                << input.circle_pad[1] << ") | Buttons: 0x" << hex
+                << input.buttons << std::dec << " | Touch: "
+                << (input.touch_active ? "YES" : "NO") << "      "
+                << flush << LOG_END;
         }
     }
 
-    log << endl;
+    log << LOG_GOOD << endl << LOG_END;
     close(sockfd);
 }
 void run_client(const Endpoint& ep) {
