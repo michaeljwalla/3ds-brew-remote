@@ -1,8 +1,13 @@
 #include <iostream>
 #include "server.h"
 
-using std::cout, std::endl;
+using std::cout, std::endl, std::cin, std::string;
 int main() {
-    cout << "Hello, world!" << endl;
-    run_client({"127.0.0.1"});
+    cout << "Input IP [127.0.0.1]: ";
+    std::string in;
+    std::getline(cin, in);
+
+    if (in.empty()) in = "127.0.0.1";
+    
+    run_client( { in } );
 }

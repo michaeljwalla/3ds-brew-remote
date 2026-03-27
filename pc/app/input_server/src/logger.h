@@ -26,6 +26,26 @@ namespace {
 
 
 
+//this unifies how you can log stuff. passes info through << and thats about it for now.
+//set any callback but you may have to redefine operator<< for specific types for complex tasks
+
+// usage:
+// make custom Logger instances with Logger( std::function<void> f ).
+// recommended overload on f to manually catch/drop LoggerStates
+
+// ThreadSafeLogger is similar, but each operator<< is a lock-run-unlock (bad for chaining)
+// using LoggerState here switches to a Session which holds the lock until destroyed.
+
+// singleton is a ThreadSafeLogger. As stated prior, pretty much works the same as a normal Logger.
+// ex:
+    // auto l = Logger::singleton();
+    // l << "Hello, World!";
+    // l << LOG_STATE_BEGIN << "Efficient " << "chaining.";
+    //
+    // auto session = l << LOG_STATE_BEGIN;
+    //     session << ... << ... ;
+    //     session << LoggerState::END;
+
 //optional state param
 struct LoggerState {
     size_t value;
