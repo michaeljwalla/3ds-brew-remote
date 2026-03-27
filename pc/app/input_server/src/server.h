@@ -1,4 +1,5 @@
 #pragma once
+#include "logger.h"
 #include <cstdint>
 #include <string>
 
@@ -12,3 +13,4 @@ struct Endpoint {
 };
 
 void run_client(const Endpoint& ep);
+void run_client(const Endpoint& ep, Logger& log);

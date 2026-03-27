@@ -20,6 +20,10 @@ static constexpr float AUTO_TERMINATE_S = 30.0f;
 static constexpr float KEEPALIVE_INTERVAL_S = 5.0f;
 
 
+static const auto endl = Logger::manip(std::endl);
+static const auto flush = Logger::manip(std::flush);
+static const auto hex = Logger::manip(std::hex);
+
 static void set_socket_timeout(int sockfd, float seconds) {
     struct timeval tv;
     tv.tv_sec = (long)seconds;
@@ -28,7 +32,7 @@ static void set_socket_timeout(int sockfd, float seconds) {
 }
 
 
-static bool do_handshake(int sockfd, const struct sockaddr_in& ds_addr) {
+static bool do_handshake(int sockfd, const struct sockaddr_in& ds_addr, Logger& log) {
     set_socket_timeout(sockfd, HANDSHAKE_TIMEOUT_S);
 
     for (int attempt = 1; attempt <= HANDSHAKE_RETRIES; ++attempt) {
@@ -46,9 +50,9 @@ static bool do_handshake(int sockfd, const struct sockaddr_in& ds_addr) {
 
         if (n > 0 && (size_t)n == strlen(ACK_MSG) &&
             std::memcmp(buffer, ACK_MSG, strlen(ACK_MSG)) == 0) {
-            std::cout << "Handshake successful: ACK received from "
+            log << "Handshake successful: ACK received from "
                       << inet_ntoa(reply_addr.sin_addr) << ":"
-                      << ntohs(reply_addr.sin_port) << std::endl;
+                      << ntohs(reply_addr.sin_port) << endl;
             return true;
         }
     }
@@ -94,17 +98,18 @@ static void validate_socket(const Endpoint& ep, int& sockfd_out, sockaddr_in& pc
     return;
 }
 
+
 //main receiver runner
-void run_client(const Endpoint& ep) {
+void run_client(const Endpoint& ep, Logger& log) {
     // Create UDP socket
     int sockfd;
     sockaddr_in pc_addr, ds_addr;
     validate_socket(ep, sockfd, pc_addr, ds_addr);
 
-    std::cout << "Listening on port " << ep.Port_PC << std::endl;
-    std::cout << "Connecting to 3DS at " << ep.IP_Address << ":" << ep.Port_3DS << std::endl;
+    log << "Listening on port " << ep.Port_PC << endl;
+    log << "Connecting to 3DS at " << ep.IP_Address << ":" << ep.Port_3DS << endl;
 
-    if (!do_handshake(sockfd, ds_addr)) {
+    if (!do_handshake(sockfd, ds_addr, log)) {
         close(sockfd);
         return;
     }
@@ -112,7 +117,7 @@ void run_client(const Endpoint& ep) {
     set_socket_timeout(sockfd, POLL_TIMEOUT_S);
     
     //loop read section
-    std::cout << "Streaming input packets. Press Ctrl+C to stop." << std::endl;
+    log << "Streaming input packets. Press Ctrl+C to stop." << endl;
 
     using Clock = std::chrono::steady_clock;
     auto last_rx = Clock::now();
@@ -144,8 +149,8 @@ void run_client(const Endpoint& ep) {
             // Timeout or other error
             std::chrono::duration<float> idle = now - last_rx;
             if (idle.count() >= AUTO_TERMINATE_S) {
-                std::cout << "No input for " << AUTO_TERMINATE_S
-                          << " seconds. Terminating." << std::endl;
+                log << "No input for " << AUTO_TERMINATE_S
+                          << " seconds. Terminating." << endl;
                 break;
             }
             continue;
@@ -166,15 +171,18 @@ void run_client(const Endpoint& ep) {
         ++packet_count;
 
         if (packet_count % 4 == 0) {  //print at 30hz
-            std::cout << "\rPackets: " << packet_count
+            log << "\rPackets: " << packet_count
                       << " | Circle: (" << input.circle_pad[0] << ", "
-                      << input.circle_pad[1] << ") | Buttons: 0x" << std::hex
+                      << input.circle_pad[1] << ") | Buttons: 0x" << hex
                       << input.buttons << std::dec << " | Touch: "
                       << (input.touch_active ? "YES" : "NO") << "      "
-                      << std::flush;
+                      << flush;
         }
     }
 
-    std::cout << std::endl;
+    log << endl;
     close(sockfd);
+}
+void run_client(const Endpoint& ep) {
+    run_client(ep, Logger::singleton());
 }
