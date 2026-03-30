@@ -25,8 +25,8 @@ static const auto flush = Logger::manip(std::flush);
 static const auto hex = Logger::manip(std::hex);
 
 // states just for definite output/end
-static const LoggerState LOG_GOOD {0};
-static const LoggerState LOG_ERR {1};
+static const LoggerState& LOG_GOOD = LoggerState::GOOD;
+static const LoggerState& LOG_ERR = LoggerState::ERR;
 static const LoggerState& LOG_END = LoggerState::END;
 
 static void set_socket_timeout(int sockfd, float seconds) {

@@ -1,3 +1,4 @@
+//TODO: rule of 5 for Logger to block singleton copy/move
 #pragma once
 
 #include <cassert>
@@ -54,10 +55,13 @@ struct LoggerState {
     bool operator==(const LoggerState& other) const {
         return this->value == other.value;
     }
-    static const LoggerState END;
+    static const LoggerState GOOD, ERR, END;
     friend std::ostream& operator<<(std::ostream& out, const LoggerState& obj); //technically unncecessary friend
 };
-inline const LoggerState LoggerState::END {std::numeric_limits<size_t>::max()};
+inline const LoggerState
+    LoggerState::GOOD {0},
+    LoggerState::ERR {1},
+    LoggerState::END {std::numeric_limits<size_t>::max()};
 inline std::ostream& operator<<(std::ostream& out, const LoggerState& obj) {
     out << "[[ LoggerState: " << obj.value << " ]]";
     return out;
