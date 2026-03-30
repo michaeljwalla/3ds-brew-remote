@@ -102,29 +102,7 @@ static bool validate_socket(const Endpoint& ep, int& sockfd_out, sockaddr_in& pc
     return true;
 }
 
-
-//main receiver runner
-void run_client(const Endpoint& ep, Logger& log) {
-    // Create UDP socket
-    int sockfd;
-    sockaddr_in pc_addr, ds_addr;
-    if ( !validate_socket(ep, sockfd, pc_addr, ds_addr, log)) return;
-
-    log << LOG_GOOD;
-    log << "Listening on port " << ep.Port_PC << endl;
-    log << "Connecting to 3DS at " << ep.IP_Address << ":" << ep.Port_3DS << endl;
-    log << LOG_END;
-
-    if (!do_handshake(sockfd, ds_addr, log)) {
-        close(sockfd);
-        return;
-    }
-
-    set_socket_timeout(sockfd, POLL_TIMEOUT_S);
-    
-    //loop read section
-    log << LOG_GOOD << "Streaming input packets. Press Ctrl+C to stop." << endl << LOG_END;
-
+static void client_loop(int sockfd, sockaddr_in& ds_addr, Logger& log) {
     using Clock = std::chrono::steady_clock;
     auto last_rx = Clock::now();
     auto last_keepalive = Clock::now();
@@ -134,7 +112,7 @@ void run_client(const Endpoint& ep, Logger& log) {
     while (true) {
         auto now = Clock::now();
 
-        // keepalive test
+        // keepalive hellokeepalive test
         std::chrono::duration<float> keepalive_elapsed = now - last_keepalive;
         if (keepalive_elapsed.count() >= KEEPALIVE_INTERVAL_S) {
             sendto(sockfd, HELLO_MSG, strlen(HELLO_MSG), 0,
@@ -142,8 +120,8 @@ void run_client(const Endpoint& ep, Logger& log) {
             last_keepalive = now;
         }
 
-        //
 
+        //fetch next packet
         uint8_t buffer[PACKET_SIZE + 32];
         struct sockaddr_in src_addr;
         socklen_t src_len = sizeof(src_addr);
@@ -162,16 +140,15 @@ void run_client(const Endpoint& ep, Logger& log) {
             continue;
         }
 
-        // Discard keepalive ACK
+        // discard keepalive ACKs
         if ((size_t)n == strlen(ACK_MSG) &&
             std::memcmp(buffer, ACK_MSG, strlen(ACK_MSG)) == 0) {
             continue;
         }
 
+        //final stretch...
         RawInput input;
-        if (!unpack_payload(buffer, n, input)) {
-            continue;
-        }
+        if (!unpack_payload(buffer, n, input)) continue;
 
         last_rx = now;
         ++packet_count;
@@ -186,8 +163,33 @@ void run_client(const Endpoint& ep, Logger& log) {
                 << flush << LOG_END;
         }
     }
+}
 
+//main receiver runner
+void run_client(const Endpoint& ep, Logger& log) {
+    // Create UDP socket
+    int sockfd;
+    sockaddr_in pc_addr, ds_addr;
+    if ( !validate_socket(ep, sockfd, pc_addr, ds_addr, log)) return;
+
+    log << LOG_GOOD
+        << "Listening on port " << ep.Port_PC << endl
+        << "Connecting to 3DS at " << ep.IP_Address << ":" << ep.Port_3DS << endl
+        << LOG_END;
+
+    //confirm connection
+    if (!do_handshake(sockfd, ds_addr, log)) {
+        close(sockfd);
+        return;
+    }
+    
+    //loop read section
+    log << LOG_GOOD << "Streaming input packets. Press Ctrl+C to stop." << endl << LOG_END;
+    set_socket_timeout(sockfd, POLL_TIMEOUT_S);
+    client_loop(sockfd, ds_addr, log);
     log << LOG_GOOD << endl << LOG_END;
+
+    //
     close(sockfd);
 }
 void run_client(const Endpoint& ep) {
