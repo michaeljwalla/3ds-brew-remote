@@ -88,22 +88,20 @@ private:
     static thread_local std::pair<std::array<std::ostream*,2>, size_t> default_log_state_redirects;
     // close me
     static void default_log(const LogArg& arg) { //defaults to cout << ... functionality
-        std::visit(
-            overloaded{ //state 0 = cout, 1 = cerr
-                [](const LoggerState& v) {
-                    size_t idx = v.value >= default_log_state_redirects.first.size() ? 0 : v.value;
-                    default_log_state_redirects.second = idx;
-                },
-                [](const auto& v) {
-                    //get the stream to output to
-                    std::ostream* const out = default_log_state_redirects.first[ default_log_state_redirects.second ];
-                    //
-                    *out << v;
-                    return;
-                },
+        std::visit( overloaded { //state 0 = cout, 1 = cerr
+            [](const LoggerState& v) {
+                size_t idx = v.value >= default_log_state_redirects.first.size() ? 0 : v.value;
+                default_log_state_redirects.second = idx;
             },
-            arg
-        );
+            [](const auto& v) {
+                //get the stream to output to
+                std::ostream* const out = default_log_state_redirects.first[ default_log_state_redirects.second ];
+                //
+                *out << v;
+                return;
+            },
+        },
+        arg);
         return;
     }
 public:
@@ -141,19 +139,29 @@ public:
     }
 };
 
+
 class ThreadSafeLoggerSession {
     ThreadSafeLogger& _logger;
     std::unique_lock<std::shared_mutex> _lock;
+
+    void end_session() {
+        if (!_lock.owns_lock()) return;
+        _logger.Logger::operator<<(LoggerState::END);
+        _lock.unlock();
+        return;
+    }
 public:
     ThreadSafeLoggerSession(ThreadSafeLogger& l)
         : _logger(l), _lock(l._mutex) {}
 
-    ~ThreadSafeLoggerSession() = default; // fallback release if no LOG_END
+    ~ThreadSafeLoggerSession() {
+        end_session();
+    }
 
     ThreadSafeLogger& operator<<(const LoggerState& state) {
         assert(_lock.owns_lock() && "Session has already ended.");
         assert(state == LoggerState::END && "Cannot change states mid-session.");
-        _lock.unlock();
+        end_session();
         return _logger;
     }
 
