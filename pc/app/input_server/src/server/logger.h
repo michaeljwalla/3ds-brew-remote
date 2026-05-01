@@ -79,7 +79,7 @@ public:
     using LogArg = std::variant <
         int, long, float, bool,
         unsigned int, unsigned long,
-        std::string, std::string_view, const char*, 
+        std::string, const char*, 
         OstreamManip, IosBaseManip, LoggerState // in case user doesnt predefine an overload
     >;
     using LogFunc = std::function<void(const LogArg&)>;
@@ -95,7 +95,7 @@ private:
     static thread_local std::pair<std::array<std::ostream*,2>, size_t> default_log_state_redirects;
     // close me
     static void default_log(const LogArg& arg) { //defaults to cout << ... functionality
-        std::visit( overloaded { //state 0 = cout, 1 = cerr
+        std::visit( overloaded { //state 1 = cerr, others [0, 1) U (1, inf] are cout
             [](const LoggerState& v) {
                 size_t idx = v.value >= default_log_state_redirects.first.size() ? 0 : v.value;
                 default_log_state_redirects.second = idx;
@@ -103,7 +103,6 @@ private:
             [](const auto& v) {
                 //get the stream to output to
                 std::ostream* const out = default_log_state_redirects.first[ default_log_state_redirects.second ];
-                //
                 *out << v;
                 return;
             },
