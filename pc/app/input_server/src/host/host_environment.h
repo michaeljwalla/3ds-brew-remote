@@ -7,6 +7,13 @@
 #include <string>
 #include "../server/logger.h"
 
+/*
+    Use InputController to spawn/fetch InputObjects
+    If 'tracking' an object externally, use the ObjectID and InputController.get()
+    to fetch (in case it deletes).
+*/
+
+
 class InputObject{
     public:
         using ObjectID = uint32_t; //if you have over 2 bil input devices wyd
@@ -38,11 +45,11 @@ class InputObject{
 };
 
 inline std::ostream& operator<<(std::ostream& os, const InputObject& i) {
-    os << "InputObject " << i.name;
+    os << "InputObject '" << i.name << "' [" << i.id << "]";
     return os;
 }
 inline Logger& operator<<(Logger& log, const InputObject& i) {
-    log << "InputObject " << i.name;
+    log << "InputObject '" << i.name << "' [" << i.id << "]";
     return log;
 };
 //
@@ -139,6 +146,15 @@ class InputController {
             }
             return out;
         }
-        
+    friend Logger& operator<<(Logger&, InputController&);
+    friend std::ostream& operator<<(std::ostream&, InputController&);
 };
 inline InputObject::ObjectID InputController::counter = 0;
+inline std::ostream& operator<<(std::ostream& os, const InputController& i) {
+    os << "InputController [" << i.size() << "]";
+    return os;
+}
+inline Logger& operator<<(Logger& log, const InputController& i) {
+    log << "InputController [" << i.size() << "]";
+    return log;
+};
