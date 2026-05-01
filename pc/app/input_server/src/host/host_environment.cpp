@@ -1,49 +1,43 @@
 #include "host_environment.h"
-#include <string_view>
-#include <unordered_map>
 #include "../server/logger.h"
-#include "linux/uinput.h"
-#include <string>
+#include <memory>
+#include <unordered_map>
 
 namespace {
-    using entry_input = std::pair<std::string_view, InputObject&>;
-    //
     static Logger& logger = Logger::singleton();
-    static std::unordered_map<std::string_view, InputObject> inputs;
-    static size_t object_counter;
+    static std::unordered_map<std::string, std::unique_ptr<InputObject>> inputs;
 
 }
 
-class InputObject{
-    private:
-        std::string name;
+// caller never owns object. use remove_device() to delete.
+InputObject* spawn_device() {
+    auto device = std::make_unique<InputObject>();
+    logger << "Spawned new device '" << *device << "'";
 
-    public:
-    InputObject(): name{ static_cast<char>(object_counter++) } {
-        return;
-    }
-    std::string_view getName() const {
-        return this->name;
-    }
-};
-
-InputObject spawn_device() {
-    InputObject x;
-
-    
-
-    return x;
+    InputObject* raw = device.get();
+    register_device( std::move(device) );
+    return raw;
 }
 
-bool register_device(const InputObject &i) {
-    std::string_view name = i.getName();
-    if (inputs.find(name) != inputs.end()) {
-        logger << LoggerState::WARN << name << "registered but already exists.";
-        return false;
+bool register_device(std::unique_ptr<InputObject> i) {
+    InputObject& raw = *i;
+    auto name = raw.getName();
+    auto [_, success] = inputs.try_emplace(name, std::move(i));
+
+    if (!success)
+        logger << LoggerState::WARN << raw << " already exists.";
+    else
+        logger << LoggerState::GOOD << raw << " registered.";
+
+    return success;
+}
+
+// non owning pointers to all tracked devices.
+std::vector<InputObject*> get_devices() {
+    std::vector<InputObject*> out;
+    out.reserve( inputs.size() );
+    for (auto& [name, ptr]: inputs) {
+        out.push_back( ptr.get() );
     }
-    inputs[i.getName()] = i;
-
-    logger << LoggerState::GOOD << name << " registered.";
-
-    return true;
+    return out;
 }
