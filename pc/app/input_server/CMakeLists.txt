@@ -9,11 +9,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 
 # Find websocketpp headers (header-only library)
-find_path(WEBSOCKETPP_INCLUDE_DIR websocketpp/config/asio_no_tls.hpp)
+set(WEBSOCKETPP_INCLUDE_DIR /usr/local/include/websocketpp)
 
-if(NOT WEBSOCKETPP_INCLUDE_DIR)
-    message(FATAL_ERROR "websocketpp headers not found. Install libwebsocketpp-dev or add websocketpp to your project.")
-endif()
 
 file(GLOB_RECURSE SOURCES src/*.cpp)
 
