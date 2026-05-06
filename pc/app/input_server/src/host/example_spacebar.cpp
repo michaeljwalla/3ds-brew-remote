@@ -1,69 +1,96 @@
 #include <linux/uinput.h>
 #include <fcntl.h>
-#include <sys/ioctl.h>
 #include <unistd.h>
 #include <cstring>
+#include <stdexcept>
+#include <string>
+#include <cstdint>
 
-void emit(int fd, int type, int code, int val)
-{
-   struct input_event ie;
-
-   ie.type = type;
-   ie.code = code;
-   ie.value = val;
-   /* timestamp values below are ignored */
-   ie.time.tv_sec = 0;
-   ie.time.tv_usec = 0;
-
-   write(fd, &ie, sizeof(ie));
+// Helper to emit a single event
+static void emit(int fd, int type, int code, int val) {
+    struct input_event ev{};
+    ev.type = type;
+    ev.code = code;
+    ev.value = val;
+    write(fd, &ev, sizeof(ev));
 }
 
-int main(void)
-{
-   struct uinput_setup usetup;
+class UinputDevice {
+    int fd = -1;
+public:
+    UinputDevice() {
+        fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+        if (fd < 0) throw std::runtime_error("open /dev/uinput failed (need root or input group)");
+    }
+    ~UinputDevice() {
+        if (fd >= 0) {
+            ioctl(fd, UI_DEV_DESTROY);
+            close(fd);
+        }
+    }
 
-   int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+    // ---- Setup ----
 
+    void enableEventType(int type)           { ioctl(fd, UI_SET_EVBIT,  type); }
+    void enableKey(int key)                  { ioctl(fd, UI_SET_KEYBIT, key);  }
+    void enableRelAxis(int axis)             { ioctl(fd, UI_SET_RELBIT, axis); }
+    void enableAbsAxis(int axis)             { ioctl(fd, UI_SET_ABSBIT, axis); }
 
-   /*
-    * The ioctls below will enable the device that is about to be
-    * created, to pass key events, in this case the space key.
-    */
-   ioctl(fd, UI_SET_EVBIT, EV_KEY);
-   ioctl(fd, UI_SET_KEYBIT, KEY_SPACE);
+    void create(const std::string& name, uint16_t vendor = 0x1234, uint16_t product = 0x5678) {
+        struct uinput_setup usetup{};
+        usetup.id.bustype = BUS_USB;
+        usetup.id.vendor  = vendor;
+        usetup.id.product = product;
+        strncpy(usetup.name, name.c_str(), UINPUT_MAX_NAME_SIZE - 1);
+        ioctl(fd, UI_DEV_SETUP, &usetup);
+        ioctl(fd, UI_DEV_CREATE);
+        sleep(1); // let kernel register the device
+    }
 
-   memset(&usetup, 0, sizeof(usetup));
-   usetup.id.bustype = BUS_USB;
-   usetup.id.vendor = 0x1234; /* sample vendor */
-   usetup.id.product = 0x5678; /* sample product */
-   strcpy(usetup.name, "Example device");
+    // ---- Emit helpers ----
 
-   ioctl(fd, UI_DEV_SETUP, &usetup);
-   ioctl(fd, UI_DEV_CREATE);
+    void syn()                              { emit(fd, EV_SYN, SYN_REPORT, 0); }
+    void keyDown(int key)                   { emit(fd, EV_KEY, key, 1); syn(); }
+    void keyUp(int key)                     { emit(fd, EV_KEY, key, 0); syn(); }
+    void keyPress(int key)                  { keyDown(key); keyUp(key); }
+    void mouseMove(int dx, int dy) {
+        emit(fd, EV_REL, REL_X, dx);
+        emit(fd, EV_REL, REL_Y, dy);
+        syn();
+    }
+    void mouseClick(int btn) {
+        emit(fd, EV_KEY, btn, 1); syn();
+        emit(fd, EV_KEY, btn, 0); syn();
+    }
+};
 
-   /*
-    * On UI_DEV_CREATE the kernel will create the device node for this
-    * device. We are inserting a pause here so that userspace has time
-    * to detect, initialize the new device, and can start listening to
-    * the event, otherwise it will not notice the event we are about
-    * to send. This pause is only needed in our example code!
-    */
-   sleep(1);
+// ---- Example usage ----
 
-   /* Key press, report the event, send key release, and report again */
-   emit(fd, EV_KEY, KEY_SPACE, 1);
-   emit(fd, EV_SYN, SYN_REPORT, 0);
-   emit(fd, EV_KEY, KEY_SPACE, 0);
-   emit(fd, EV_SYN, SYN_REPORT, 0);
+int main() {
+    // --- Virtual Mouse ---
+    UinputDevice mouse;
+    mouse.enableEventType(EV_KEY);
+    mouse.enableKey(BTN_LEFT);
+    mouse.enableKey(BTN_RIGHT);
+    mouse.enableEventType(EV_REL);
+    mouse.enableRelAxis(REL_X);
+    mouse.enableRelAxis(REL_Y);
+    mouse.create("Virtual Mouse");
 
-   /*
-    * Give userspace some time to read the events before we destroy the
-    * device with UI_DEV_DESTOY.
-    */
-   sleep(1);
+    mouse.mouseMove(100, 50);
+    mouse.mouseClick(BTN_LEFT);
 
-   ioctl(fd, UI_DEV_DESTROY);
-   close(fd);
+    // --- Virtual Keyboard ---
+    UinputDevice kbd;
+    kbd.enableEventType(EV_KEY);
+    kbd.enableKey(KEY_H);
+    kbd.enableKey(KEY_I);
+    kbd.enableKey(KEY_ENTER);
+    kbd.create("Virtual Keyboard");
 
-   return 0;
+    kbd.keyPress(KEY_H);
+    kbd.keyPress(KEY_I);
+    kbd.keyPress(KEY_ENTER);
+
+    return 0;
 }
