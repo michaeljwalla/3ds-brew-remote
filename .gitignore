@@ -5,3 +5,5 @@ CMakeFiles/
 CMakeCache.txt
 .venv/
 TODO.txt
+compile_commands.json
+*.o
