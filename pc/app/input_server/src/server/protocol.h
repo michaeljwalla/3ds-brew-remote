@@ -29,7 +29,7 @@ enum ButtonMask: uint16_t {
     SELECT = 1 << 12,
     START  = 1 << 13
 };
-
+static constexpr uint16_t NUM_INPUTS = 14;
 
 //
 #pragma pack(push, 1)
