@@ -1,11 +1,10 @@
 #include <cassert>
-#include <functional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <utility>
-#include "../server/protocol.h"
-
+#include "server/protocol.h"
+#include <vector>
 
 namespace {
     using HandlerReturnType = int;

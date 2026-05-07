@@ -1,5 +1,5 @@
 #include "server.h"
-#include "protocol.h"
+#include "server/protocol.h"
 #include "logger.h"
 
 #include <arpa/inet.h>
@@ -7,7 +7,6 @@
 #include <cstring>
 #include <iostream>
 #include <netinet/in.h>
-#include <ostream>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>

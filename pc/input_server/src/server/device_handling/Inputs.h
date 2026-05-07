@@ -1,15 +1,14 @@
 #pragma once
 #include <limits>
 #include <memory>
-#include <stdexcept>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 #include <string>
 
 #include "logger.h"
-#include "mappings.h"
-#include "../host/OSRetrieve.h"
+#include "server/device_handling/mappings.h"
+#include "host/OSRetrieve.h"
 
 /*
     Use InputController to spawn/fetch InputObjects
