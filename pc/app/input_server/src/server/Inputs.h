@@ -7,22 +7,10 @@
 #include <vector>
 #include <string>
 
-
-#include <linux/uinput.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <cstring>
-#include <cerrno>
-#include <string>
-#include <cstdint>
-#include <system_error>
-#include <sys/inotify.h>
-#include <sys/stat.h>
-#include <poll.h>
-#include <dirent.h>
-
-#include "../server/logger.h"
+#include "logger.h"
 #include "mappings.h"
+#include "../host/OSRetrieve.h"
+
 /*
     Use InputController to spawn/fetch InputObjects
     If 'tracking' an object externally, use the ObjectID and InputController.get()
@@ -46,11 +34,7 @@ class InputObject{
             fd{std::numeric_limits<int>::min()},
             mapping{getMapper(InputTypes::KEYBOARD)}
         {
-            fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-            if (fd < 0)
-                throw std::system_error(errno, std::generic_category(),
-                 "open /dev/uinput (need root or input group)");
-            return;
+            fd = os_spawn();
         }
 
     public:
@@ -62,10 +46,7 @@ class InputObject{
         InputObject& operator=(InputObject&&) = delete;
 
         ~InputObject() {
-            if (fd >= 0) {
-                ioctl(fd, UI_DEV_DESTROY);
-                close(fd);
-            }
+            os_close(fd);
         }
         const ObjectName& getName() const {
             return this->name;
