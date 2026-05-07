@@ -1,9 +1,16 @@
 #include <functional>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <utility>
 
-
+enum InputTypes {
+    KEYBOARD,
+    MOUSE,
+    GAMEPAD,
+    // ...
+};
+class InputMap;
 class InputMap {
     using HandlerReturnType = int;
     using Handler = HandlerReturnType(*)(int fd, int code);
@@ -26,3 +33,13 @@ class InputMap {
         }
         
 };
+
+static std::unordered_map<InputTypes, const InputMap> available = {
+
+}; //todo att get() and then revise host_environment to use it
+
+inline const InputMap& getMapping(InputTypes type) {
+    auto it = available.find(type);
+    if (it == available.end()) throw std::runtime_error("no mapping for type " + std::to_string(type));
+    return it->second;
+}
