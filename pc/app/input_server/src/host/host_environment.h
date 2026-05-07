@@ -1,12 +1,28 @@
 #pragma once
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 #include <string>
-#include "../server/logger.h"
 
+
+#include <linux/uinput.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <cstring>
+#include <cerrno>
+#include <string>
+#include <cstdint>
+#include <system_error>
+#include <sys/inotify.h>
+#include <sys/stat.h>
+#include <poll.h>
+#include <dirent.h>
+
+#include "../server/logger.h"
+#include "mappings.h"
 /*
     Use InputController to spawn/fetch InputObjects
     If 'tracking' an object externally, use the ObjectID and InputController.get()
@@ -21,8 +37,21 @@ class InputObject{
     private:
         const ObjectID id;
         const ObjectName name;
+        int fd;
+        InputMap& mapping;
         //non-const unknown object*(?) = nullptr (?);
-        InputObject(ObjectID id, std::string_view name): id{id}, name{name} {}
+        InputObject(ObjectID id, std::string_view name, InputTypes type = InputTypes::NONE):
+            id{id},
+            name{name},
+            fd{std::numeric_limits<int>::min()},
+            mapping{getMapper(InputTypes::KEYBOARD)}
+        {
+            fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
+            if (fd < 0)
+                throw std::system_error(errno, std::generic_category(),
+                 "open /dev/uinput (need root or input group)");
+            return;
+        }
 
     public:
         // must use input controller
@@ -32,6 +61,12 @@ class InputObject{
         InputObject& operator=(const InputObject&) = delete;
         InputObject& operator=(InputObject&&) = delete;
 
+        ~InputObject() {
+            if (fd >= 0) {
+                ioctl(fd, UI_DEV_DESTROY);
+                close(fd);
+            }
+        }
         const ObjectName& getName() const {
             return this->name;
         }

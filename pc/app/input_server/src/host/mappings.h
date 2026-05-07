@@ -1,26 +1,34 @@
+#include <cassert>
 #include <functional>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <utility>
 
+
+
+namespace {
+    using HandlerReturnType = int;
+    using Handler = HandlerReturnType(*)(int fd, int code);
+    //
+    using Keymap = std::unordered_map<int, Handler>;
+}
 enum InputTypes {
+    NONE,
     KEYBOARD,
     MOUSE,
     GAMEPAD,
     // ...
 };
 class InputMap;
-class InputMap {
-    using HandlerReturnType = int;
-    using Handler = HandlerReturnType(*)(int fd, int code);
+class InputMap { //immutable
     //
     const std::string name;
-    const std::unordered_map<int, Handler> keymap;
-
+    const Keymap keymap;
 
     public:
-        InputMap(const std::string name, std::unordered_map<int, Handler>&& keymap):
+        InputMap(): name{"NONE"}, keymap{} {}
+        InputMap(const std::string name, Keymap&& keymap):
             name{name},
             keymap{std::move(keymap)} {}
         const std::string& getName() const { return name; }
@@ -34,11 +42,13 @@ class InputMap {
         
 };
 
-static std::unordered_map<InputTypes, const InputMap> available = {
 
+//internal
+static std::unordered_map<InputTypes, InputMap> available = {
+    { InputTypes::NONE, {} }
 }; //todo att get() and then revise host_environment to use it
 
-inline const InputMap& getMapping(InputTypes type) {
+inline InputMap& getMapper(InputTypes type) {
     auto it = available.find(type);
     if (it == available.end()) throw std::runtime_error("no mapping for type " + std::to_string(type));
     return it->second;
