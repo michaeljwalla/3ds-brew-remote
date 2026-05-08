@@ -39,6 +39,24 @@ Inputs are streamed over UDP at 60Hz, with the aforementioned data.\
 <img src="./assets/qr_cia.svg" alt="QR Code" width="240">
 
 ### Installing Server / Capturer
+
+Setup your environment to allow the program to write inputs:
+```bash
+# create/get input group & add self to it
+getent group input || sudo groupadd -r input
+sudo usermod -aG input $USER
+
+# ensure input group has write access
+echo 'KERNEL=="uinput", GROUP="input", MODE="0660"' | sudo tee /etc/udev/rules.d/99-uinput.rules
+
+# reload modules
+sudo udevadm control --reload-rules
+sudo modprobe -r uinput && sudo modprobe uinput
+```
+Build the docker environment:
+```bash
+docker build -t 3ds-brew-remote .
+```
 - (todo) make a real graphical interface and deploy to docker with xyz args
 - decide on if we want to make interaction shell a webpage, electron app, or something else
 
