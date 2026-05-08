@@ -1,4 +1,5 @@
 #pragma once
+#include <cmath>
 #include <limits>
 #include <memory>
 #include <unordered_map>
@@ -21,20 +22,32 @@ class InputObject{
     public:
         using ObjectID = uint32_t; //if you have over 2 bil input devices wyd
         using ObjectName = std::string;
-    private:
+    protected:
         const ObjectID id;
         const ObjectName name;
         int fd;
+        //OS os; //method access
         InputMap& mapping;
-        //non-const unknown object*(?) = nullptr (?);
+        struct OS {
+            int& fd;
+            int spawn() { return os_spawn(); }
+            void close() { os_close(fd); return; }
+            int ioctl(unsigned long req) { return os_ioctl(fd, req); } 
+            //
+            OS(int& fd): fd{fd} {}
+        };
+        OS os;
         InputObject(ObjectID id, std::string_view name, InputTypes type = InputTypes::NONE):
             id{id},
             name{name},
             fd{std::numeric_limits<int>::min()},
-            mapping{getMapper(InputTypes::KEYBOARD)}
+            mapping{getMapper(InputTypes::NONE)},
+            os{fd}
         {
-            fd = os_spawn();
+            fd = os.spawn();
         }
+        
+        
 
     public:
         // must use input controller
@@ -44,8 +57,8 @@ class InputObject{
         InputObject& operator=(const InputObject&) = delete;
         InputObject& operator=(InputObject&&) = delete;
 
-        ~InputObject() {
-            os_close(fd);
+        virtual ~InputObject() {
+            os.close();
         }
         const ObjectName& getName() const {
             return this->name;
@@ -53,10 +66,12 @@ class InputObject{
         ObjectID getID() const {
             return this->id;
         }
-    
-    friend class InputController;
-    friend std::ostream& operator<<(std::ostream&, const InputObject&);
-    friend Logger& operator<<(Logger&, const InputObject&);
+        
+    public:
+        friend class InputController;
+        friend class InputMap;
+        friend std::ostream& operator<<(std::ostream&, const InputObject&);
+        friend Logger& operator<<(Logger&, const InputObject&);
 };
 
 inline std::ostream& operator<<(std::ostream& os, const InputObject& i) {
@@ -68,7 +83,56 @@ inline Logger& operator<<(Logger& log, const InputObject& i) {
     return log;
 };
 //
+//example child
+struct coords {
+    int x, y; 
+    coords(): x{0}, y{0} {}
+    coords(int x, int y): x{x}, y{y} {}
 
+    coords operator+(const coords& other) const {
+        return coords(x + other.x, y + other.y);
+    }
+    coords& operator+=(const coords& other) {
+        x += other.x;
+        y += other.y;
+        return *this;
+    }
+    coords operator-(const coords& other) const {
+        return coords(x - other.x, y - other.y);
+    }
+    coords& operator-=(const coords& other) {
+        x -= other.x;
+        y -= other.y;
+        return *this;
+    }
+
+    template<typename T>
+    coords operator*(T scalar) const {
+        return coords(x * scalar, y * scalar);
+    }
+    template<typename T>
+    coords& operator*=(T scalar) {
+        x *= scalar;
+        y *= scalar;
+        return *this;
+    }
+    template<typename T>
+    T magnitude() const {
+        return std::sqrt(x * x + y * y);
+    }
+};
+class InputMouse: InputObject {
+    coords pos;
+    InputMouse(ObjectID id, std::string_view name):
+        InputObject(id, name, InputTypes::MOUSE),
+        pos()
+    {}
+
+    public:
+        ~InputMouse() = default;
+};
+
+static InputMouse x();
 //not thread safe
 class InputController {
     public:
