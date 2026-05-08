@@ -25,3 +25,7 @@ void os_close(int fd) {
     close(fd);
     return;
 }
+
+int os_ioctl(int fd, unsigned long req) {
+    return ioctl(fd, req);
+}
