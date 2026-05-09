@@ -1,4 +1,5 @@
-
+//wrapper for os calls, deciding to change to libevdev...
+#pragma once
 #include <linux/uinput.h>
 #include <fcntl.h>
 #include <unistd.h>

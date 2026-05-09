@@ -1,3 +1,6 @@
+// assumption is that Handler(...) on some fd already has the proper
+// uinput flags set up to work. to throw / ignore is TBD
+
 #include <cassert>
 #include <stdexcept>
 #include <string>
