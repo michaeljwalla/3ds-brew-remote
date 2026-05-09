@@ -29,5 +29,6 @@ class OSWrapper {
     void sync();
     void emit(int type, int code, int value);
 
-    void create(const std::string& name, uint16_t vendor, uint16_t product);
+    //yields
+    void create(const std::string& name, uint16_t vendor=0x1234, uint16_t product=0x5678);
 };
