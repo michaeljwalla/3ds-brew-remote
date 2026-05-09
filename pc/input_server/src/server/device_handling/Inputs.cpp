@@ -1,4 +1,5 @@
 #include "server/device_handling/Inputs.h"
+#include <iostream>
 
 
 //InputObject
@@ -90,7 +91,9 @@ InputMouse::InputMouse(ObjectID id, std::string_view name):
 
 void InputMouse::init() {
     os.spawn();
-
+    os.toggleState(EV_REL, true);
+    os.toggleState(EV_ABS, true);
+    os.toggleState(EV_KEY, true);
     os.create(name);
     return;
 }

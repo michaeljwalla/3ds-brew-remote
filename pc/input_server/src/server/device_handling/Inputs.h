@@ -74,9 +74,9 @@ class InputController {
 
         //factory
         template<isInputObject I>
-        uptr create();
+        uptr _create(bool init);
         template<isInputObject I>
-        uptr create(const ObjectName& name);
+        uptr _create(const ObjectName& name, bool init);
 
         //
         public:
@@ -96,9 +96,9 @@ class InputController {
         bool has( ObjectID id );
 
         template<isInputObject I>
-        ObjectID spawn();
+        ObjectID create(bool init);
         template<isInputObject I>
-        ObjectID spawn(const ObjectName& name);
+        ObjectID create(const ObjectName& name, bool init);
 
 
         //hold by ObjectID and use get()...
@@ -131,7 +131,7 @@ class InputMouse: public InputObject {
     using coordinate = coords<int16_t>;
     coordinate pos;
     InputMouse(ObjectID id, std::string_view name);
-
+    
     void init() override;
     public:
         void button_down(int btn);
@@ -148,29 +148,35 @@ class InputMouse: public InputObject {
 
 // templated functions below
 
+//factory
 template<isInputObject I>
-InputController::uptr InputController::create() {
+InputController::uptr InputController::_create(bool init) {
     auto id = counter++;
-    return uptr(new I(id, std::to_string(id)));
+    auto ptr = uptr(new I(id, std::to_string(id)));
+    if (init) ptr->init();
+    return ptr;
+}
+
+//factory
+template<isInputObject I>
+InputController::uptr InputController::_create(const ObjectName& name, bool init) {
+    auto id = counter++;
+    auto ptr = uptr(new I(id, name));
+    if (init) ptr->init();
+    return ptr;
 }
 
 template<isInputObject I>
-InputController::uptr InputController::create(const ObjectName& name) {
-    auto id = counter++;
-    return uptr(new I(id, name));
-}
-
-template<isInputObject I>
-InputObject::ObjectID InputController::spawn() {
-    uptr i = create<I>();
+InputObject::ObjectID InputController::create(bool init) {
+    uptr i = _create<I>(init);
     auto id = i->id;
     emplace( std::move(i) );
     return id;
 } 
 template<isInputObject I>
-InputObject::ObjectID InputController::spawn(const ObjectName& name)
+InputObject::ObjectID InputController::create(const ObjectName& name, bool init)
 {
-    uptr i = create<I>(name);
+    uptr i = _create<I>(name, init);
     auto id = i->id;
     emplace( std::move(i) );
     return id;

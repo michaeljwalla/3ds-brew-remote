@@ -20,7 +20,7 @@ struct coords {
     }
 
     coords operator-(const coords& other) const {
-        return { x - other.x, y - other.y };
+        return { static_cast<T>(x - other.x), static_cast<T>(y - other.y) };
     }
 
     coords& operator-=(const coords& other) {

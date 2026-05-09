@@ -2,6 +2,7 @@
 #include "server.h"
 
 #include <libevdev/libevdev-uinput.h>
+#include <unistd.h>
 
 
 #include "server/device_handling/Inputs.h"
@@ -13,9 +14,14 @@ namespace {
 }
 int main() {
     InputController controller;
-    ObjectID mId = controller.spawn<InputMouse>("My Virtual Mouse");
+    ObjectID mId = controller.create<InputMouse>("My Virtual Mouse", true);
     InputMouse* mouse = controller.get_static<InputMouse>(mId);
     
+    cout << *mouse << endl;
+    for (int i = 0; i < 5; ++i) {
+        mouse->move({10, 10});
+        sleep(1);
+    }
     // mouse.enableKey(BTN_LEFT);
     // mouse.enableKey(BTN_RIGHT);
     // mouse.enableRelAxis(REL_X);
