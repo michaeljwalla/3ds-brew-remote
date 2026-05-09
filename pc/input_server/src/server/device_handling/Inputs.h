@@ -1,6 +1,4 @@
 #pragma once
-#include <cmath>
-#include <limits>
 #include <memory>
 #include <unordered_map>
 #include <utility>
@@ -10,6 +8,9 @@
 #include "logger.h"
 #include "server/device_handling/mappings.h"
 #include "host/OSRetrieve.h"
+#include "datatypes.h"
+
+#include <concepts>
 
 /*
     Use InputController to spawn/fetch InputObjects
@@ -22,31 +23,19 @@ class InputObject{
     public:
         using ObjectID = uint32_t; //if you have over 2 bil input devices wyd
         using ObjectName = std::string;
+    private:
+        virtual void init() = 0;
     protected:
         const ObjectID id;
         const ObjectName name;
-        int fd;
-        //OS os; //method access
         InputMap& mapping;
-        struct OS {
-            int& fd;
-            int spawn() { return os_spawn(); }
-            void close() { os_close(fd); return; }
-            int ioctl(unsigned long req) { return os_ioctl(fd, req); } 
-            //
-            OS(int& fd): fd{fd} {}
-        };
-        OS os;
+        struct OSWrapper os;
         InputObject(ObjectID id, std::string_view name, InputTypes type = InputTypes::NONE):
             id{id},
             name{name},
-            fd{std::numeric_limits<int>::min()},
             mapping{getMapper(InputTypes::NONE)},
-            os{fd}
-        {
-            fd = os.spawn();
-        }
-        
+            os{}
+        {}
         
 
     public:
@@ -57,9 +46,7 @@ class InputObject{
         InputObject& operator=(const InputObject&) = delete;
         InputObject& operator=(InputObject&&) = delete;
 
-        virtual ~InputObject() {
-            os.close();
-        }
+        virtual ~InputObject() = default;
         const ObjectName& getName() const {
             return this->name;
         }
@@ -82,54 +69,28 @@ inline Logger& operator<<(Logger& log, const InputObject& i) {
     log << "InputObject '" << i.name << "' [" << i.id << "]";
     return log;
 };
+namespace {
+    template <typename T>
+    concept isInputObject = std::derived_from<T, InputObject>;
+}
 //
-//example child
-struct coords {
-    int x, y; 
-    coords(): x{0}, y{0} {}
-    coords(int x, int y): x{x}, y{y} {}
 
-    coords operator+(const coords& other) const {
-        return coords(x + other.x, y + other.y);
-    }
-    coords& operator+=(const coords& other) {
-        x += other.x;
-        y += other.y;
-        return *this;
-    }
-    coords operator-(const coords& other) const {
-        return coords(x - other.x, y - other.y);
-    }
-    coords& operator-=(const coords& other) {
-        x -= other.x;
-        y -= other.y;
-        return *this;
-    }
-
-    template<typename T>
-    coords operator*(T scalar) const {
-        return coords(x * scalar, y * scalar);
-    }
-    template<typename T>
-    coords& operator*=(T scalar) {
-        x *= scalar;
-        y *= scalar;
-        return *this;
-    }
-    template<typename T>
-    T magnitude() const {
-        return std::sqrt(x * x + y * y);
-    }
-};
 class InputMouse: InputObject {
-    coords pos;
+    coords<int16_t> pos;
     InputMouse(ObjectID id, std::string_view name):
         InputObject(id, name, InputTypes::MOUSE),
         pos()
     {}
 
+    void init() override {
+        os.spawn();
+        os.create(name);
+    }
+
+
+
     public:
-        ~InputMouse() = default;
+        
 };
 
 static InputMouse x();
@@ -140,18 +101,21 @@ class InputController {
         using ObjectName = InputObject::ObjectName;
         using uptr = std::unique_ptr<InputObject>;
     private:
+        
         std::unordered_map<ObjectID, uptr> inputs;
         static ObjectID counter;
         Logger* logger; //non owning
 
         //factory
+        template<isInputObject T>
         uptr create() {
             auto id = counter++;
-            return uptr(new InputObject(id, std::to_string(id)));
+            return uptr(new T(id, std::to_string(id)));
         }
+        template<isInputObject T>
         uptr create(const ObjectName& name) {
             auto id = counter++;
-            return uptr(new InputObject(id, name));
+            return uptr(new T(id, name));
         }
         bool emplace( uptr&& i ) {
             return inputs.try_emplace( i->id, std::move(i) ).second;
@@ -178,14 +142,16 @@ class InputController {
         }
         //
 
+        template<isInputObject T>
         ObjectID spawn() {
-            uptr i = create();
+            uptr i = create<T>();
             auto id = i->id;
             emplace( std::move(i) );
             return id;
         }
+        template<isInputObject T>
         ObjectID spawn(const ObjectName& name) {
-            uptr i = create(name);
+            uptr i = create<T>(name);
             auto id = i->id;
             emplace( std::move(i) );
             return id;
