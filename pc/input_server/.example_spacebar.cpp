@@ -1,39 +1,16 @@
-
-
-#include <linux/uinput.h>
+#include <linux/input.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <cstring>
 #include <cerrno>
 #include <string>
-#include <cstdint>
+#include <stdexcept>
 #include <system_error>
 #include <sys/inotify.h>
 #include <sys/stat.h>
 #include <poll.h>
 #include <dirent.h>
-
-static void checked_ioctl(int fd, unsigned long req, const char* name) {
-    if (ioctl(fd, req) < 0)
-        throw std::system_error(errno, std::generic_category(), name);
-}
-
-static void checked_ioctl(int fd, unsigned long req, int arg, const char* name) {
-    if (ioctl(fd, req, arg) < 0)
-        throw std::system_error(errno, std::generic_category(), name);
-}
-
-static void emit(int fd, int type, int code, int val) {
-    struct input_event ev{};
-    ev.type  = type;
-    ev.code  = code;
-    ev.value = val;
-    if (write(fd, &ev, sizeof(ev)) != sizeof(ev))
-        throw std::system_error(errno, std::generic_category(), "write input_event");
-}
-
-// Returns the eventN name for a given sysfs input name (e.g. "input15" -> "event15").
-// Looks in /sys/class/input/<sysname>/ for a subdirectory starting with "event".
+#include <libevdev/libevdev-uinput.h>
 static std::string findEventName(const char* sysname) {
     std::string dir = std::string("/sys/class/input/") + sysname;
     DIR* d = opendir(dir.c_str());
@@ -49,8 +26,6 @@ static std::string findEventName(const char* sysname) {
     return found;
 }
 
-// Waits for /dev/input/<node> to appear. Sets up inotify before the stat check
-// to avoid the race where it appears between check and watch.
 static void waitForDevNode(const std::string& node, int timeout_ms = 3000) {
     int ifd = inotify_init1(IN_CLOEXEC);
     if (ifd < 0)
@@ -58,47 +33,43 @@ static void waitForDevNode(const std::string& node, int timeout_ms = 3000) {
 
     inotify_add_watch(ifd, "/dev/input", IN_CREATE);
 
-    // Check if it already exists (race-free: watch is registered first)
     std::string path = "/dev/input/" + node;
     struct stat st{};
-    if (stat(path.c_str(), &st) == 0) {
-        close(ifd);
-        return;
-    }
+    if (stat(path.c_str(), &st) == 0) { close(ifd); return; }
 
-    // Read inotify events until our node appears or we time out
     struct pollfd pfd{ ifd, POLLIN, 0 };
     char buf[sizeof(struct inotify_event) + NAME_MAX + 1];
     while (poll(&pfd, 1, timeout_ms) > 0) {
         ssize_t n = read(ifd, buf, sizeof(buf));
         for (ssize_t i = 0; i < n;) {
             auto* ev = reinterpret_cast<struct inotify_event*>(buf + i);
-            if (ev->len && ev->name == node) {
-                close(ifd);
-                return;
-            }
+            if (ev->len && ev->name == node) { close(ifd); return; }
             i += sizeof(struct inotify_event) + ev->len;
         }
     }
-
     close(ifd);
     throw std::runtime_error("timed out waiting for " + path);
 }
 
+// ---- UinputDevice ----
+
 class UinputDevice {
-    int fd = -1;
+    libevdev*        dev  = nullptr;
+    libevdev_uinput* udev = nullptr;
 
     void waitReady() {
-        // UI_GET_SYSNAME succeeds only once the kernel input device is live.
-        char sysname[64]{};
-        if (ioctl(fd, UI_GET_SYSNAME(sizeof(sysname)), sysname) < 0)
-            throw std::system_error(errno, std::generic_category(), "UI_GET_SYSNAME");
+        const char* sysname = libevdev_uinput_get_syspath(udev);
+        if (!sysname)
+            throw std::runtime_error("libevdev_uinput_get_syspath returned null");
 
-        // Kernel device is registered; now wait for udev to create /dev/input/eventN
-        // so libinput/the compositor can actually see the device.
-        std::string eventname = findEventName(sysname);
+        // syspath is e.g. /sys/devices/virtual/input/input15
+        // we need just the last component: "input15"
+        const char* base = strrchr(sysname, '/');
+        base = base ? base + 1 : sysname;
+
+        std::string eventname = findEventName(base);
         if (eventname.empty())
-            throw std::runtime_error(std::string("no event node found under /sys/class/input/") + sysname);
+            throw std::runtime_error(std::string("no event node under /sys/class/input/") + base);
 
         waitForDevNode(eventname);
         sleep(1);
@@ -106,17 +77,14 @@ class UinputDevice {
 
 public:
     UinputDevice() {
-        fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-        if (fd < 0)
-            throw std::system_error(errno, std::generic_category(),
-                                    "open /dev/uinput (need root or input group)");
+        dev = libevdev_new();
+        if (!dev)
+            throw std::runtime_error("libevdev_new failed");
     }
 
     ~UinputDevice() {
-        if (fd >= 0) {
-            ioctl(fd, UI_DEV_DESTROY);
-            close(fd);
-        }
+        if (udev) libevdev_uinput_destroy(udev);
+        if (dev)  libevdev_free(dev);
     }
 
     UinputDevice(const UinputDevice&)            = delete;
@@ -124,51 +92,68 @@ public:
 
     // ---- Setup ----
 
-    void enableEventType(int type) { checked_ioctl(fd, UI_SET_EVBIT,  type, "UI_SET_EVBIT");  }
-    void enableKey(int key)        { checked_ioctl(fd, UI_SET_KEYBIT, key,  "UI_SET_KEYBIT"); }
-    void enableRelAxis(int axis)   { checked_ioctl(fd, UI_SET_RELBIT, axis, "UI_SET_RELBIT"); }
-    void enableAbsAxis(int axis)   { checked_ioctl(fd, UI_SET_ABSBIT, axis, "UI_SET_ABSBIT"); }
+    void setName(const std::string& name) { libevdev_set_name(dev, name.c_str()); }
+    void setIds(uint16_t vendor, uint16_t product) {
+        libevdev_set_id_bustype(dev, BUS_USB);
+        libevdev_set_id_vendor(dev, vendor);
+        libevdev_set_id_product(dev, product);
+    }
 
+    void enableKey(int key) {
+        libevdev_enable_event_type(dev, EV_KEY);
+        libevdev_enable_event_code(dev, EV_KEY, key, nullptr);
+    }
+    void enableRelAxis(int axis) {
+        libevdev_enable_event_type(dev, EV_REL);
+        libevdev_enable_event_code(dev, EV_REL, axis, nullptr);
+    }
+    void enableAbsAxis(int axis, const input_absinfo& info) {
+        libevdev_enable_event_type(dev, EV_ABS);
+        libevdev_enable_event_code(dev, EV_ABS, axis, &info);
+    }
+
+    // Call after all enable*() calls
     void create(const std::string& name, uint16_t vendor = 0x1234, uint16_t product = 0x5678) {
-        struct uinput_setup usetup{};
-        usetup.id.bustype = BUS_USB;
-        usetup.id.vendor  = vendor;
-        usetup.id.product = product;
-        strncpy(usetup.name, name.c_str(), UINPUT_MAX_NAME_SIZE - 1);
+        setName(name);
+        setIds(vendor, product);
 
-        
-        if (ioctl(fd, UI_DEV_SETUP, &usetup) < 0)
-            throw std::system_error(errno, std::generic_category(), "UI_DEV_SETUP");
-        checked_ioctl(fd, UI_DEV_CREATE, "UI_DEV_CREATE");
+        // LIBEVDEV_UINPUT_OPEN_MANAGED: libevdev opens/closes /dev/uinput itself
+        int rc = libevdev_uinput_create_from_device(dev, LIBEVDEV_UINPUT_OPEN_MANAGED, &udev);
+        if (rc < 0)
+            throw std::system_error(-rc, std::generic_category(), "libevdev_uinput_create_from_device");
+
         waitReady();
     }
 
-    // ---- Emit helpers ----
+    // ---- Emit ----
 
-    void syn()                     { emit(fd, EV_SYN, SYN_REPORT, 0); }
-    void keyDown(int key)          { emit(fd, EV_KEY, key, 1); syn(); }
-    void keyUp(int key)            { emit(fd, EV_KEY, key, 0); syn(); }
+    void emit(int type, int code, int value) {
+        int rc = libevdev_uinput_write_event(udev, type, code, value);
+        if (rc < 0)
+            throw std::system_error(-rc, std::generic_category(), "libevdev_uinput_write_event");
+    }
+
+    void syn()                     { emit(EV_SYN, SYN_REPORT, 0); }
+    void keyDown(int key)          { emit(EV_KEY, key, 1); syn(); }
+    void keyUp(int key)            { emit(EV_KEY, key, 0); syn(); }
     void keyPress(int key)         { keyDown(key); keyUp(key); }
     void mouseMove(int dx, int dy) {
-        emit(fd, EV_REL, REL_X, dx);
-        emit(fd, EV_REL, REL_Y, dy);
+        emit(EV_REL, REL_X, dx);
+        emit(EV_REL, REL_Y, dy);
         syn();
     }
     void mouseClick(int btn) {
-        emit(fd, EV_KEY, btn, 1); syn();
-        emit(fd, EV_KEY, btn, 0); syn();
+        emit(EV_KEY, btn, 1); syn();
+        emit(EV_KEY, btn, 0); syn();
     }
 };
 
 // ---- Example usage ----
 
 int main() {
-    // --- Virtual Mouse ---
     UinputDevice mouse;
-    mouse.enableEventType(EV_KEY);
     mouse.enableKey(BTN_LEFT);
     mouse.enableKey(BTN_RIGHT);
-    mouse.enableEventType(EV_REL);
     mouse.enableRelAxis(REL_X);
     mouse.enableRelAxis(REL_Y);
     mouse.create("Virtual Mouse");
@@ -176,9 +161,7 @@ int main() {
     mouse.mouseMove(100, 50);
     mouse.mouseClick(BTN_LEFT);
 
-    // --- Virtual Keyboard ---
     UinputDevice kbd;
-    kbd.enableEventType(EV_KEY);
     kbd.enableKey(KEY_H);
     kbd.enableKey(KEY_I);
     kbd.enableKey(KEY_ENTER);
