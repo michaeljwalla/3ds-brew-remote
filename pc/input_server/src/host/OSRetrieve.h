@@ -1,5 +1,33 @@
 #pragma once
+#include <cstdint>
+#include <libevdev/libevdev.h>
+#include <libevdev/libevdev-uinput.h>
+#include <string>
 
-int os_spawn();
-void os_close(int fd);
-int os_ioctl(int fd, unsigned long req);
+class OSWrapper {
+    libevdev* dev {nullptr};
+    libevdev_uinput* udev {nullptr};
+
+    void waitReady();
+
+    public:
+    OSWrapper() = default;
+    OSWrapper(const OSWrapper&) = delete;
+    OSWrapper& operator=(const OSWrapper&) = delete;
+    OSWrapper(OSWrapper&&) = default;
+    OSWrapper& operator=(OSWrapper&&) = default;
+    ~OSWrapper();
+    ///
+    void spawn();
+    void close();
+
+    void setName(const std::string& name);
+    void setIds(uint16_t vendor, uint16_t product);
+    void enableKey(int key);
+    void enableRelAxis(int axis);
+    void enableAbsAxis(int axis, const input_absinfo& info);
+    void sync();
+    void emit(int type, int code, int value);
+
+    void create(const std::string& name, uint16_t vendor, uint16_t product);
+};

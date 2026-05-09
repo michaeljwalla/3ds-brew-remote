@@ -1,32 +1,72 @@
 //wrapper for os calls, deciding to change to libevdev...
-#pragma once
-#include <linux/uinput.h>
-#include <fcntl.h>
+#include <cassert>
 #include <unistd.h>
-#include <cerrno>
 #include <system_error>
-#include <sys/inotify.h>
-#include <sys/stat.h>
-#include <poll.h>
-#include <dirent.h>
 
-//return fd input referrer
-int os_spawn() {
-    int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
-    if (fd < 0)
-        throw std::system_error(errno, std::generic_category(),
-            "open /dev/uinput (need root or input group)");
-    return fd;
+#include "OSRetrieve.h"
+
+
+
+OSWrapper::~OSWrapper() {
+    close();
 }
-
-void os_close(int fd) {
-    if (fd < 0) return;
-
-    ioctl(fd, UI_DEV_DESTROY);
-    close(fd);
+void OSWrapper::spawn() {
+    dev = libevdev_new();
+    assert(dev && "libevdev_new failed");
+}
+void OSWrapper::close() {
+    if (udev) libevdev_uinput_destroy(udev);
+    if (dev)  libevdev_free(dev);
+    dev = nullptr;
+    udev = nullptr;
+}
+void OSWrapper::setName(const std::string& name) {
+    assert(dev && "device not spawned");
+    libevdev_set_name(dev, name.c_str());
+}
+void OSWrapper::setIds(uint16_t vendor, uint16_t product) {
+    assert(dev && "device not spawned");
+    libevdev_set_id_bustype(dev, BUS_USB);
+    libevdev_set_id_vendor(dev, vendor);
+    libevdev_set_id_product(dev, product);
+}
+void OSWrapper::enableKey(int key) {
+    assert(dev && "device not spawned");
+    libevdev_enable_event_type(dev, EV_KEY);
+    libevdev_enable_event_code(dev, EV_KEY, key, nullptr);
+}
+void OSWrapper::enableRelAxis(int axis) {
+    assert(dev && "device not spawned");
+    libevdev_enable_event_type(dev, EV_REL);
+    libevdev_enable_event_code(dev, EV_REL, axis, nullptr);
+}
+void OSWrapper::enableAbsAxis(int axis, const input_absinfo& info) {
+    assert(dev && "device not spawned");
+    libevdev_enable_event_type(dev, EV_ABS);
+    libevdev_enable_event_code(dev, EV_ABS, axis, &info);
+}
+void OSWrapper::sync() {
+    assert(udev && "device not created");
+    int rc = libevdev_uinput_write_event(udev, EV_SYN, SYN_REPORT, 0);
+    if (rc < 0)        throw std::system_error(-rc, std::generic_category(), "libevdev_uinput_write_event");
+    return;
+}
+void OSWrapper::emit(int type, int code, int value) {
+    assert(udev && "device not created");
+    int rc = libevdev_uinput_write_event(udev, type, code, value);
+    if (rc < 0)        throw std::system_error(-rc, std::generic_category(), "libevdev_uinput_write_event");
     return;
 }
 
-int os_ioctl(int fd, unsigned long req) {
-    return ioctl(fd, req);
+void OSWrapper::waitReady() { sleep(1); } //TODO utilize a non arbitrary way to await readiness;
+void OSWrapper::create(const std::string& name, uint16_t vendor, uint16_t product) {
+    setName(name);
+    setIds(vendor, product);
+
+    // LIBEVDEV_UINPUT_OPEN_MANAGED: libevdev opens/closes /dev/uinput itself
+    int rc = libevdev_uinput_create_from_device(dev, LIBEVDEV_UINPUT_OPEN_MANAGED, &udev);
+    if (rc < 0)
+        throw std::system_error(-rc, std::generic_category(), "libevdev_uinput_create_from_device");
+
+    waitReady();
 }
