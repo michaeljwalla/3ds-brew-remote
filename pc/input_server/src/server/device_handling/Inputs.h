@@ -1,7 +1,6 @@
 #pragma once
 #include <memory>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 #include <string>
 
@@ -28,15 +27,10 @@ class InputObject{
     protected:
         const ObjectID id;
         const ObjectName name;
-        InputMap& mapping;
+        InputMap<InputObject>* mapping;
         struct OSWrapper os;
-        InputObject(ObjectID id, std::string_view name, InputTypes type = InputTypes::NONE):
-            id{id},
-            name{name},
-            mapping{getMapper(InputTypes::NONE)},
-            os{}
-        {}
-        
+        InputObject(ObjectID id, std::string_view name, InputTypes type = InputTypes::NONE);
+
 
     public:
         // must use input controller
@@ -47,53 +41,22 @@ class InputObject{
         InputObject& operator=(InputObject&&) = delete;
 
         virtual ~InputObject() = default;
-        const ObjectName& getName() const {
-            return this->name;
-        }
-        ObjectID getID() const {
-            return this->id;
-        }
-        
+        const ObjectName& getName() const;
+        ObjectID getID() const;
+
     public:
         friend class InputController;
-        friend class InputMap;
+        friend class InputMap<InputObject>;
         friend std::ostream& operator<<(std::ostream&, const InputObject&);
         friend Logger& operator<<(Logger&, const InputObject&);
 };
 
-inline std::ostream& operator<<(std::ostream& os, const InputObject& i) {
-    os << "InputObject '" << i.name << "' [" << i.id << "]";
-    return os;
-}
-inline Logger& operator<<(Logger& log, const InputObject& i) {
-    log << "InputObject '" << i.name << "' [" << i.id << "]";
-    return log;
-};
 namespace {
     template <typename T>
     concept isInputObject = std::derived_from<T, InputObject>;
 }
 //
 
-class InputMouse: InputObject {
-    coords<int16_t> pos;
-    InputMouse(ObjectID id, std::string_view name):
-        InputObject(id, name, InputTypes::MOUSE),
-        pos()
-    {}
-
-    void init() override {
-        os.spawn();
-        os.create(name);
-    }
-
-
-
-    public:
-        
-};
-
-static InputMouse x();
 //not thread safe
 class InputController {
     public:
@@ -101,28 +64,24 @@ class InputController {
         using ObjectName = InputObject::ObjectName;
         using uptr = std::unique_ptr<InputObject>;
     private:
-        
+
         std::unordered_map<ObjectID, uptr> inputs;
         static ObjectID counter;
         Logger* logger; //non owning
 
+        //
+        bool emplace( uptr&& i );
+
         //factory
-        template<isInputObject T>
-        uptr create() {
-            auto id = counter++;
-            return uptr(new T(id, std::to_string(id)));
-        }
-        template<isInputObject T>
-        uptr create(const ObjectName& name) {
-            auto id = counter++;
-            return uptr(new T(id, name));
-        }
-        bool emplace( uptr&& i ) {
-            return inputs.try_emplace( i->id, std::move(i) ).second;
-        }
+        template<isInputObject I>
+        uptr create();
+        template<isInputObject I>
+        uptr create(const ObjectName& name);
+
+        //
         public:
-        InputController(): inputs{},  logger{nullptr} {}
-        InputController(Logger* logger): inputs{}, logger{logger} {}
+        InputController();
+        InputController(Logger* logger);
         ~InputController() = default;
 
         //no copy
@@ -130,76 +89,104 @@ class InputController {
         InputController& operator=(const InputController&) = delete;
 
         //move operations
-        InputController(InputController&& other) noexcept:
-            inputs{ std::move(other.inputs) },
-            logger{ std::exchange(other.logger, nullptr) }
-        {}
-        InputController& operator=(InputController&& other) noexcept {
-            if (this == &other) return *this;
-            this->inputs = std::move(other.inputs);
-            this->logger = std::exchange( other.logger, nullptr );
-            return *this;
-        }
+        InputController(InputController&& other) noexcept;
+        InputController& operator=(InputController&& other) noexcept;
         //
+        void remove( ObjectID id );
+        bool has( ObjectID id );
 
-        template<isInputObject T>
-        ObjectID spawn() {
-            uptr i = create<T>();
-            auto id = i->id;
-            emplace( std::move(i) );
-            return id;
-        }
-        template<isInputObject T>
-        ObjectID spawn(const ObjectName& name) {
-            uptr i = create<T>(name);
-            auto id = i->id;
-            emplace( std::move(i) );
-            return id;
-        }
+        template<isInputObject I>
+        ObjectID spawn();
+        template<isInputObject I>
+        ObjectID spawn(const ObjectName& name);
 
-        void remove( ObjectID id ) {
-            inputs.erase( id );
-        }
-        bool has( ObjectID id ) {
-            return inputs.find( id ) != inputs.end(); 
-        }
 
-        //hold by ObjectID and use get()
-        InputObject* get( ObjectID id ) {
-            auto it = inputs.find( id );
-            if (it == inputs.end()) return nullptr;
-            return it->second.get();
-        }
+        //hold by ObjectID and use get()...
+        //dynamic casted
+        template<isInputObject I>
+        I* get( ObjectID id );
+        template<isInputObject I>
+        I* get_static( ObjectID id );
+        
         //take others
-        void adopt(InputController&& other) {
-            if (this == &other) return;
-            inputs.merge(other.inputs);
-            other.inputs.clear();
-            return;
-        }
+        void adopt(InputController&& other);
 
-        size_t size() const {
-            return inputs.size();
-        }
+        size_t size() const;
 
         //hold by ObjectID and use get()
-        std::vector<InputObject*> get_objects() const {
-            std::vector<InputObject*> out;
-            out.reserve( inputs.size() );
-            for (auto& [id, ptr]: inputs) {
-                out.push_back( ptr.get() );
-            }
-            return out;
-        }
+        std::vector<InputObject*> get_objects() const;
+
     friend Logger& operator<<(Logger&, InputController&);
     friend std::ostream& operator<<(std::ostream&, InputController&);
 };
-inline InputObject::ObjectID InputController::counter = 0;
-inline std::ostream& operator<<(std::ostream& os, const InputController& i) {
-    os << "InputController [" << i.size() << "]";
-    return os;
-}
-inline Logger& operator<<(Logger& log, const InputController& i) {
-    log << "InputController [" << i.size() << "]";
-    return log;
+
+std::ostream& operator<<(std::ostream& os, const InputObject& i);
+Logger& operator<<(Logger& log, const InputObject& i);
+
+std::ostream& operator<<(std::ostream& os, const InputController& i);
+Logger& operator<<(Logger& log, const InputController& i);
+
+
+class InputMouse: public InputObject {
+    using coordinate = coords<int16_t>;
+    coordinate pos;
+    InputMouse(ObjectID id, std::string_view name);
+
+    void init() override;
+    public:
+        void button_down(int btn);
+        void button_up(int btn);
+        void button_click(int btn);
+        void move(coordinate delta);
+        void set_pos(coordinate newPos);
+        coordinate get_pos() const;
+
+
+    friend class InputController;
+
 };
+
+// templated functions below
+
+template<isInputObject I>
+InputController::uptr InputController::create() {
+    auto id = counter++;
+    return uptr(new I(id, std::to_string(id)));
+}
+
+template<isInputObject I>
+InputController::uptr InputController::create(const ObjectName& name) {
+    auto id = counter++;
+    return uptr(new I(id, name));
+}
+
+template<isInputObject I>
+InputObject::ObjectID InputController::spawn() {
+    uptr i = create<I>();
+    auto id = i->id;
+    emplace( std::move(i) );
+    return id;
+} 
+template<isInputObject I>
+InputObject::ObjectID InputController::spawn(const ObjectName& name)
+{
+    uptr i = create<I>(name);
+    auto id = i->id;
+    emplace( std::move(i) );
+    return id;
+}
+
+template<isInputObject I>
+I* InputController::get( ObjectID id ) {
+    auto it = inputs.find( id );
+    if (it == inputs.end()) return nullptr;
+    return dynamic_cast<I*>(it->second.get());
+}
+
+//faster than get() but dont lose the type!
+template<isInputObject I>
+I* InputController::get_static( ObjectID id ) {
+    auto it = inputs.find( id );
+    if (it == inputs.end()) return nullptr;
+    return static_cast<I*>(it->second.get());
+}
