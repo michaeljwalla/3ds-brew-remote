@@ -126,6 +126,17 @@ InputController::FireResult InputController::fire(TotalInputMask btn, RawInput& 
     };
 }
 
+//use get_mapping() as second param, will be UB if t is rval
+void InputController::override_mapping(ObjectID id, InputMap<InputObject>& t) {
+    auto it = inputs.find(id);
+    if (it == inputs.end()) {
+        throw std::out_of_range("InputController::initialize: ObjectID " + std::to_string(id) + " not present");
+    }
+    auto& obj = *it->second;
+    obj.mapping = &t;
+    return;
+}
+
 Logger* InputController::get_logger() {
     return this->logger;
 }

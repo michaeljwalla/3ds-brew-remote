@@ -9,7 +9,6 @@
 #include "logger.h"
 #include "server/device_handling/mappings.h"
 #include "host/OSRetrieve.h"
-#include "datatypes.h"
 
 #include <concepts>
 
@@ -126,6 +125,7 @@ class InputController {
         template<isInputObject I>
         ObjectID create(const ObjectName& name, bool init);
 
+        void override_mapping(ObjectID id, InputMap<InputObject>& type);
 
         //hold by ObjectID and use get()...
         //dynamic casted
