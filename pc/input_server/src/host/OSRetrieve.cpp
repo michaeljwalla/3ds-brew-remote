@@ -30,10 +30,15 @@ void OSWrapper::setIds(uint16_t vendor, uint16_t product) {
     libevdev_set_id_vendor(dev, vendor);
     libevdev_set_id_product(dev, product);
 }
-void OSWrapper::toggleState(int state, bool enabled) {
+void OSWrapper::enableKey(int code) {
     assert(dev && "device not spawned");
     libevdev_enable_event_type(dev, EV_KEY);
-    libevdev_enable_event_code(dev, EV_KEY, state, nullptr);
+    libevdev_enable_event_code(dev, EV_KEY, code, nullptr);
+}
+void OSWrapper::enableRelAxis(int axis) {
+    assert(dev && "device not spawned");
+    libevdev_enable_event_type(dev, EV_REL);
+    libevdev_enable_event_code(dev, EV_REL, axis, nullptr);
 }
 void OSWrapper::sync() {
     assert(udev && "device not created");

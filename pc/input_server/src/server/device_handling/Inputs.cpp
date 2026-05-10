@@ -91,9 +91,10 @@ InputMouse::InputMouse(ObjectID id, std::string_view name):
 
 void InputMouse::init() {
     os.spawn();
-    os.toggleState(EV_REL, true);
-    os.toggleState(EV_ABS, true);
-    os.toggleState(EV_KEY, true);
+    os.enableKey(BTN_LEFT);
+    os.enableKey(BTN_RIGHT);
+    os.enableRelAxis(REL_X);
+    os.enableRelAxis(REL_Y);
     os.create(name);
     return;
 }

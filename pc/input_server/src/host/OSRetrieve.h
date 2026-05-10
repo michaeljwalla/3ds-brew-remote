@@ -23,7 +23,8 @@ class OSWrapper {
 
     void setName(const std::string& name);
     void setIds(uint16_t vendor, uint16_t product);
-    void toggleState(int state, bool enabled);
+    void enableKey(int code);
+    void enableRelAxis(int axis);
     void sync();
     void emit(int type, int code, int value);
 
