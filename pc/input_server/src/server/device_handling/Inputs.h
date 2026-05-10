@@ -68,7 +68,7 @@ class InputController {
     private:
 
         std::unordered_map<ObjectID, uptr> inputs;
-        std::unordered_map<ButtonMask, std::list<InputObject*>> buckets;
+        std::unordered_map<TotalInputMask, std::list<InputObject*>> buckets;
 
         static ObjectID counter;
         Logger* logger; //non owning
@@ -82,7 +82,7 @@ class InputController {
         template<isInputObject I>
         uptr _create(const ObjectName& name, bool init);
 
-        //buckets used so fire() fires only what has handles defined for some ButtonMask
+        //buckets used so fire() fires only what has handles defined for some TotalInputMask
         //the tradeoff would be faster fire() and the extra change-overhead is fine since changing
         //inputs is not expected to occur during "live use"
         void regenerate_buckets();
@@ -103,6 +103,8 @@ class InputController {
         InputController& operator=(InputController&& other) noexcept;
         //
         
+        Logger* get_logger();
+        void set_logger(Logger* logger);
         void remove( ObjectID id );
         bool has( ObjectID id );
 
@@ -124,8 +126,8 @@ class InputController {
 
         size_t size() const;
 
-        //iterate through each InputObject with a handler for the ButtonMask
-        HandlerValues fire(ButtonMask btn, RawInput& code) const;
+        //iterate through each InputObject with a handler for the TotalInputMask
+        HandlerValues fire(TotalInputMask btn, RawInput& code) const;
         //hold by ObjectID and use get()
         std::vector<InputObject*> get_objects() const;
 

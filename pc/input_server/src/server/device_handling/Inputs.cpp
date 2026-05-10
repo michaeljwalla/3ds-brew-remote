@@ -35,13 +35,13 @@ bool InputController::emplace( uptr&& i ) {
 
 InputController::InputController(): inputs{}, buckets{}, logger{nullptr} {
     for (auto i = 0; i < NUM_INPUTS; i++) {
-        buckets.emplace( static_cast<ButtonMask>(1 << i), std::list<InputObject*>() );
+        buckets.emplace( static_cast<TotalInputMask>(1 << i), std::list<InputObject*>() );
     }
     return;
 }
 InputController::InputController(Logger* logger): inputs{}, buckets{}, logger{logger} {
     for (auto i = 0; i < NUM_INPUTS; i++) {
-        buckets.emplace( static_cast<ButtonMask>(1 << i), std::list<InputObject*>() );
+        buckets.emplace( static_cast<TotalInputMask>(1 << i), std::list<InputObject*>() );
     }
     return;
 }
@@ -58,7 +58,10 @@ InputController& InputController::operator=(InputController&& other) noexcept {
     this->logger = std::exchange( other.logger, nullptr );
     return *this;
 }
-
+void InputController::set_logger(Logger* logger) {
+    this->logger = logger;
+    return;
+}
 void InputController::regenerate_buckets() {
     for (auto& [mask, bucket]: buckets) {
         bucket.clear();
@@ -68,7 +71,7 @@ void InputController::regenerate_buckets() {
         auto* mapping = obj->mapping;
         if (!mapping) continue;
         for (size_t i = 0; i < NUM_INPUTS; ++i) {
-            const ButtonMask btn = static_cast<ButtonMask>(1 << i);
+            const TotalInputMask btn = static_cast<TotalInputMask>(1 << i);
             if (mapping->getKeymap().find(btn) != mapping->getKeymap().end()) {
                 buckets[btn].push_back( obj );
             }
@@ -87,14 +90,14 @@ void InputController::add_to_buckets(ObjectID id) {
     auto* mapping = obj->mapping;
     if (!mapping) return;
     for (size_t i = 0; i < NUM_INPUTS; ++i) {
-        const ButtonMask btn = static_cast<ButtonMask>(1 << i);
+        const TotalInputMask btn = static_cast<TotalInputMask>(1 << i);
         if (mapping->getKeymap().find(btn) != mapping->getKeymap().end()) {
             buckets[btn].push_back( obj );
         }
     }
 }
 
-InputController::HandlerValues InputController::fire(ButtonMask btn, RawInput& code) const {
+InputController::HandlerValues InputController::fire(TotalInputMask btn, RawInput& code) const {
     HandlerValues results;
     auto it = buckets.find(btn);
     if (it == buckets.end()) return results;
@@ -103,10 +106,14 @@ InputController::HandlerValues InputController::fire(ButtonMask btn, RawInput& c
     for (auto* obj: bucket) {
         auto* mapping = obj->mapping;
         if (!mapping) continue;
-        auto handler_result = mapping->handle(*obj, btn, code);
+        auto handler_result = mapping->handle(*obj, btn, code, this->logger);
         results.at(i++) = {obj->id, handler_result};
     }
     return results;
+}
+
+Logger* InputController::get_logger() {
+    return this->logger;
 }
 void InputController::remove( ObjectID id ) {
     remove_from_buckets(id);

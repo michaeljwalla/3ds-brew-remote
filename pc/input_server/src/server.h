@@ -1,5 +1,6 @@
 #pragma once
-#include "logger.h"
+
+#include "server/device_handling/Inputs.h"
 #include <cstdint>
 #include <string>
 
@@ -12,5 +13,4 @@ struct Endpoint {
     uint16_t Port_PC  = DEFAULT_PC_PORT;
 };
 
-void run_client(const Endpoint& ep);
-void run_client(const Endpoint& ep, Logger& log);
+void run_client(const Endpoint& ep, InputController& controller);

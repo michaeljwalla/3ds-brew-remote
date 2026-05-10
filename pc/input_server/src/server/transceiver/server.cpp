@@ -4,6 +4,7 @@
 
 #include <arpa/inet.h>
 #include <chrono>
+#include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <netinet/in.h>
@@ -12,6 +13,9 @@
 #include <unistd.h>
 
 // Constants from receiver.py
+// threshold to flag as 'change,' any more can be handled by Handlers.
+static constexpr float DELTA_EPSILON = 0.001f;
+
 static constexpr float HANDSHAKE_TIMEOUT_S = 0.5f;
 static constexpr int HANDSHAKE_RETRIES = 30;
 static constexpr float POLL_TIMEOUT_S = 1.0f;
@@ -101,9 +105,52 @@ static bool validate_socket(const Endpoint& ep, int& sockfd_out, sockaddr_in& pc
     return true;
 }
 
-
+template<typename T>
+concept isFP = std::is_floating_point_v<T>;
+template<isFP T>
+//floats specifically
+bool is_diff(T& a, T& b) {
+    return std::abs(a - b) > DELTA_EPSILON;
+}
+uint32_t get_diffs(RawInput& prev, RawInput& cur) {
+    uint32_t diff = 0;
+    diff |= (prev.buttons ^ cur.buttons); //first 0-13 is the same
+    //circle pad
+    diff |= (
+        (is_diff(prev.circle_pad[0], cur.circle_pad[0])) ||
+        (is_diff(prev.circle_pad[1], cur.circle_pad[1]))
+    ) << 14;
+    //cpad pro
+    diff |= (
+        (is_diff(prev.circle_pad_pro[0], cur.circle_pad_pro[0])) ||
+        (is_diff(prev.circle_pad_pro[1], cur.circle_pad_pro[1]))
+    ) << 15;
+    //touch sensor
+    diff |= (
+        prev.touch_active ^ cur.touch_active ||
+        is_diff(prev.touch[0], cur.touch[0]) ||
+        is_diff(prev.touch[1], cur.touch[1])
+    ) << 16;
+    //gyroscope
+    diff |= (
+        (is_diff(prev.gyro[0], cur.gyro[0])) ||
+        (is_diff(prev.gyro[1], cur.gyro[1])) ||
+        (is_diff(prev.gyro[2], cur.gyro[2]))
+    ) << 17;
+    //accelerometer
+    diff |= (
+        (is_diff(prev.accel[0], cur.accel[0])) ||
+        (is_diff(prev.accel[1], cur.accel[1])) ||
+        (is_diff(prev.accel[2], cur.accel[2]))
+    ) << 18;
+    //always runs per packet (not guaranteed rate)
+    diff |= 1u << 19;
+    return diff;
+}
 //main receiver runner
-void run_client(const Endpoint& ep, Logger& log) {
+void run_client(const Endpoint& ep, InputController& controller) {
+    auto& log = controller.get_logger() ? *controller.get_logger() : Logger::singleton(); 
+    
     // Create UDP socket
     int sockfd;
     sockaddr_in pc_addr, ds_addr;
@@ -129,7 +176,7 @@ void run_client(const Endpoint& ep, Logger& log) {
     auto last_keepalive = Clock::now();
 
     uint64_t packet_count = 0;
-
+    RawInput prev_input{}; //for delta checks
     while (true) {
         auto now = Clock::now();
 
@@ -175,20 +222,22 @@ void run_client(const Endpoint& ep, Logger& log) {
         last_rx = now;
         ++packet_count;
 
+        // process input and fire handlers
+        auto diff_mask = get_diffs(prev_input, input);
+        for (uint32_t i = 0u; i < NUM_INPUTS; ++i) {
+            const TotalInputMask btn = static_cast<TotalInputMask>(1 << i);
+            if (diff_mask & (1u << i)) controller.fire(btn, input);
+        }
+        std::exchange(prev_input, input); //update prev for next round
+        //output
         if (packet_count % 4 == 0) {  //print at 30hz
             log << LOG_GOOD
                 << "\rPackets: " << packet_count
-                << " | Circle: (" << input.circle_pad[0] << ", "
-                << input.circle_pad[1] << ") | Buttons: 0x" << hex
-                << input.buttons << std::dec << " | Touch: "
-                << (input.touch_active ? "YES" : "NO") << "      "
+                << " Diffs: " << std::format("{:b}", diff_mask)
                 << flush << LOG_END;
         }
     }
 
     log << LOG_GOOD << endl << LOG_END;
     close(sockfd);
-}
-void run_client(const Endpoint& ep) {
-    run_client(ep, Logger::singleton());
 }
