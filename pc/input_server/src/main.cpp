@@ -10,13 +10,16 @@
 #include "server/device_handling/static_inputs.h"
 
 namespace {
-    const auto endl = Logger::manip(std::endl);
+    using namespace LoggerCommons;
     using LS = LoggerState;
+
+    using std::cin;
 } 
 namespace {
     using ObjectID = InputObject::ObjectID;
 }
 int main() {
+    
     Logger& log = Logger::singleton();
     InputController controller(&log);
     ObjectID mId = controller.create<InputMouse>("My Virtual Mouse", true);
@@ -24,7 +27,15 @@ int main() {
     controller.override_mapping(mId, get_mapping(InputTypes::LOGGING));
     
     log << LS::GOOD << *mouse << endl;
-    controller.fire( TotalInputMask::A, {} );
+    //
+
+    log << "Input IP [127.0.0.1]: ";
+    std::string in;
+    std::getline(cin, in);
+
+    if (in.empty()) in = "127.0.0.1";
+    
+    run_client( { in }, controller );
     // mouse.enableKey(BTN_LEFT);
     // mouse.enableKey(BTN_RIGHT);
     // mouse.enableRelAxis(REL_X);
@@ -48,11 +59,5 @@ int main() {
 }
 
 // int main() {
-//     cout << "Input IP [127.0.0.1]: ";
-//     std::string in;
-//     std::getline(cin, in);
-
-//     if (in.empty()) in = "127.0.0.1";
-    
-//     run_client( { in } );
+//     
 // }
