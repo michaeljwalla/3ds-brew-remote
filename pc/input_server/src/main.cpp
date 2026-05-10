@@ -6,22 +6,25 @@
 
 
 // #include "server/device_handling/Inputs.h"
+#include "server/device_handling/static_mappings.h"
 #include "server/device_handling/static_inputs.h"
 
-using std::cout, std::endl, std::cin, std::string;
+namespace {
+    const auto endl = Logger::manip(std::endl);
+    using LS = LoggerState;
+} 
 namespace {
     using ObjectID = InputObject::ObjectID;
 }
 int main() {
-    InputController controller;
+    Logger& log = Logger::singleton();
+    InputController controller(&log);
     ObjectID mId = controller.create<InputMouse>("My Virtual Mouse", true);
     InputMouse* mouse = controller.get_static<InputMouse>(mId);
+    controller.override_mapping(mId, get_mapping(InputTypes::LOGGING));
     
-    cout << *mouse << endl;
-    for (int i = 0; i < 5; ++i) {
-        mouse->move({10, 10});
-        sleep(1);
-    }
+    log << LS::GOOD << *mouse << endl;
+    controller.fire( TotalInputMask::A, {} );
     // mouse.enableKey(BTN_LEFT);
     // mouse.enableKey(BTN_RIGHT);
     // mouse.enableRelAxis(REL_X);

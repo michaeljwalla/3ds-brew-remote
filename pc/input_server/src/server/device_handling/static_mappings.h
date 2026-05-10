@@ -1,3 +1,4 @@
+#pragma once
 #include "mappings.h"
 #include "Inputs.h"
 

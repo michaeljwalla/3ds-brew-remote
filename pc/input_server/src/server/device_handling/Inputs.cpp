@@ -110,7 +110,7 @@ void InputController::add_to_buckets(ObjectID id) {
     }
 }
 
-InputController::FireResult InputController::fire(TotalInputMask btn, RawInput& code) const {
+InputController::FireResult InputController::fire(TotalInputMask btn, RawInput code) const {
     auto it = buckets.find(btn);
     if (it == buckets.end()) return { {}, {} };
     const auto& b = it->second;
@@ -118,7 +118,7 @@ InputController::FireResult InputController::fire(TotalInputMask btn, RawInput& 
     size_t i = 0;
     for (auto* obj: b.objects) {
         // bucket invariant (add_to_buckets): obj->mapping non-null and has a non-null handler for btn
-        b.results[i++] = obj->mapping->handle(*obj, btn, code, this->logger);
+        b.results[i++] = obj->mapping->handle(obj, btn, code, this->logger);
     }
     return {
         std::span<const ObjectID>(b.ids.data(), n),

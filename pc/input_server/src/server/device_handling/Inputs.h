@@ -140,7 +140,7 @@ class InputController {
         size_t size() const;
 
         //iterate through each InputObject with a handler for the TotalInputMask
-        FireResult fire(TotalInputMask btn, RawInput& code) const;
+        FireResult fire(TotalInputMask btn, RawInput code) const;
         //hold by ObjectID and use get()
         std::vector<InputObject*> get_objects() const;
 

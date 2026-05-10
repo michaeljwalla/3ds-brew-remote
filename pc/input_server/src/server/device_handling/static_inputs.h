@@ -1,3 +1,5 @@
+#pragma once
+
 #include "datatypes.h"
 #include "Inputs.h"
 

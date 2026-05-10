@@ -1,5 +1,7 @@
 #include "static_inputs.h"
 #include "static_mappings.h"
+
+
 //InputMouse
 InputMouse::InputMouse(ObjectID id, std::string_view name):
     InputObject(id, name, InputTypes::MOUSE),
