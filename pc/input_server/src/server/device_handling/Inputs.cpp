@@ -134,6 +134,8 @@ void InputController::override_mapping(ObjectID id, InputMap<InputObject>& t) {
     }
     auto& obj = *it->second;
     obj.mapping = &t;
+    remove_from_buckets(id);
+    add_to_buckets(id);
     return;
 }
 

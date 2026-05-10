@@ -22,10 +22,7 @@ static constexpr float POLL_TIMEOUT_S = 1.0f;
 static constexpr float AUTO_TERMINATE_S = 30.0f;
 static constexpr float KEEPALIVE_INTERVAL_S = 5.0f;
 
-// some of the ones used here
-static const auto endl = Logger::manip(std::endl);
-static const auto flush = Logger::manip(std::flush);
-static const auto hex = Logger::manip(std::hex);
+using namespace LoggerCommons;
 
 // states just for definite output/end
 static const LoggerState LOG_GOOD {0};
