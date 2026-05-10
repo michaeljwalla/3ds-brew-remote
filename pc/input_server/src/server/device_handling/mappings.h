@@ -10,22 +10,30 @@
 #include <vector>
 #include "logger.h"
 
-namespace {
-    using HandlerReturnType = int;
-    template<typename T>
-    using Handler = HandlerReturnType(*)(T& in, RawInput code, Logger* logger);
-    //
-    template<typename T>
-    using UntypedKeymap = std::unordered_map<TotalInputMask, Handler<T>>;
-    using std::vector;
-}
+using HandlerReturnType = int;
+template<typename T>
+using Handler = HandlerReturnType(*)(T& in, RawInput code, Logger* logger);
+template<typename T>
+using UntypedKeymap = std::unordered_map<TotalInputMask, Handler<T>>;
 enum InputTypes {
     NONE,
+    LOGGING,
     KEYBOARD,
     MOUSE,
     GAMEPAD,
     // ...
 };
+inline const char* getInputTypeName(InputTypes t) {
+    switch (t) {
+        case NONE: return "NONE";
+        case LOGGING: return "LOGGING";
+        case KEYBOARD: return "KEYBOARD";
+        case MOUSE: return "MOUSE";
+        case GAMEPAD: return "GAMEPAD";
+        
+        default:    return "Unknown";
+    }
+}
 template<typename T>
 class InputMap { //immutable
     //
@@ -46,11 +54,11 @@ class InputMap { //immutable
         //
         HandlerReturnType handle(T& input, TotalInputMask btn, RawInput& code, Logger* logger=nullptr) const {
             auto it = keymap.find(btn);
-            if (it == keymap.end()) return -1;
+            if (it == keymap.end() || it->second == nullptr) return -1;
             return it->second(input, code, logger);
         }
-        vector<HandlerReturnType> handleAll(T& input, RawInput& code, Logger* logger=nullptr) const {
-            vector<HandlerReturnType> results(NUM_INPUTS);
+        std::vector<HandlerReturnType> handleAll(T& input, RawInput& code, Logger* logger=nullptr) const {
+            std::vector<HandlerReturnType> results(NUM_INPUTS);
             for (size_t i = 0; i < NUM_INPUTS; ++i) {
                 const TotalInputMask btn = static_cast<TotalInputMask>(1 << i);
                 results.push_back( handle(input, btn, code, logger) );

@@ -1,6 +1,7 @@
 #pragma once
 #include <list>
 #include <memory>
+#include <span>
 #include <unordered_map>
 #include <vector>
 #include <string>
@@ -25,6 +26,7 @@ class InputObject{
         using ObjectName = std::string;
     private:
         virtual void init() = 0;
+        bool initialized = false; //flipped by InputController; subclass init() does not touch
     protected:
         const ObjectID id;
         const ObjectName name;
@@ -44,6 +46,7 @@ class InputObject{
         virtual ~InputObject() = default;
         const ObjectName& getName() const;
         ObjectID getID() const;
+        bool is_initialized() const;
 
     public:
         friend class InputController;
@@ -64,11 +67,19 @@ class InputController {
         using ObjectID = InputObject::ObjectID;
         using ObjectName = InputObject::ObjectName;
         using uptr = std::unique_ptr<InputObject>;
-        using HandlerValues = std::array<std::pair<ObjectID, HandlerReturnType>, NUM_INPUTS>;
+        // parallel spans into the bucket's preallocated storage; valid until the
+        // next bucket mutation (create/remove/adopt). length = number of objects
+        // bound to this btn.
+        using FireResult = std::pair<std::span<const ObjectID>, std::span<const HandlerReturnType>>;
     private:
+        struct Bucket {
+            std::list<InputObject*> objects;
+            std::vector<ObjectID> ids;                       // parallel to objects, in iteration order
+            mutable std::vector<HandlerReturnType> results;  // pre-sized, written in fire()
+        };
 
         std::unordered_map<ObjectID, uptr> inputs;
-        std::unordered_map<TotalInputMask, std::list<InputObject*>> buckets;
+        std::unordered_map<TotalInputMask, Bucket> buckets;
 
         static ObjectID counter;
         Logger* logger; //non owning
@@ -107,6 +118,8 @@ class InputController {
         void set_logger(Logger* logger);
         void remove( ObjectID id );
         bool has( ObjectID id );
+        //run init() on a deferred-init object; throws if id absent, no-op if already initialized
+        void initialize( ObjectID id );
 
         template<isInputObject I>
         ObjectID create(bool init);
@@ -127,7 +140,7 @@ class InputController {
         size_t size() const;
 
         //iterate through each InputObject with a handler for the TotalInputMask
-        HandlerValues fire(TotalInputMask btn, RawInput& code) const;
+        FireResult fire(TotalInputMask btn, RawInput& code) const;
         //hold by ObjectID and use get()
         std::vector<InputObject*> get_objects() const;
 
@@ -142,24 +155,6 @@ std::ostream& operator<<(std::ostream& os, const InputController& i);
 Logger& operator<<(Logger& log, const InputController& i);
 
 
-class InputMouse: public InputObject {
-    using coordinate = coords<int16_t>;
-    coordinate pos;
-    InputMouse(ObjectID id, std::string_view name);
-    
-    void init() override;
-    public:
-        void button_down(int btn);
-        void button_up(int btn);
-        void button_click(int btn);
-        void move(coordinate delta);
-        void set_pos(coordinate newPos);
-        coordinate get_pos() const;
-
-
-    friend class InputController;
-
-};
 
 // templated functions below
 
@@ -168,7 +163,7 @@ template<isInputObject I>
 InputController::uptr InputController::_create(bool init) {
     auto id = counter++;
     auto ptr = uptr(new I(id, std::to_string(id)));
-    if (init) ptr->init();
+    if (init) { ptr->init(); ptr->initialized = true; }
     return ptr;
 }
 
@@ -177,7 +172,7 @@ template<isInputObject I>
 InputController::uptr InputController::_create(const ObjectName& name, bool init) {
     auto id = counter++;
     auto ptr = uptr(new I(id, name));
-    if (init) ptr->init();
+    if (init) { ptr->init(); ptr->initialized = true; }
     return ptr;
 }
 

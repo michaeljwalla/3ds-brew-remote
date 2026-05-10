@@ -1,5 +1,6 @@
 #include "server/device_handling/Inputs.h"
 #include <iostream>
+#include <stdexcept>
 
 
 //InputObject
@@ -15,6 +16,9 @@ const InputObject::ObjectName& InputObject::getName() const {
 }
 InputObject::ObjectID InputObject::getID() const {
     return this->id;
+}
+bool InputObject::is_initialized() const {
+    return this->initialized;
 }
 
 std::ostream& operator<<(std::ostream& os, const InputObject& i) {
@@ -35,13 +39,13 @@ bool InputController::emplace( uptr&& i ) {
 
 InputController::InputController(): inputs{}, buckets{}, logger{nullptr} {
     for (auto i = 0; i < NUM_INPUTS; i++) {
-        buckets.emplace( static_cast<TotalInputMask>(1 << i), std::list<InputObject*>() );
+        buckets.emplace( static_cast<TotalInputMask>(1 << i), Bucket{} );
     }
     return;
 }
 InputController::InputController(Logger* logger): inputs{}, buckets{}, logger{logger} {
     for (auto i = 0; i < NUM_INPUTS; i++) {
-        buckets.emplace( static_cast<TotalInputMask>(1 << i), std::list<InputObject*>() );
+        buckets.emplace( static_cast<TotalInputMask>(1 << i), Bucket{} );
     }
     return;
 }
@@ -63,24 +67,29 @@ void InputController::set_logger(Logger* logger) {
     return;
 }
 void InputController::regenerate_buckets() {
-    for (auto& [mask, bucket]: buckets) {
-        bucket.clear();
+    for (auto& [mask, b]: buckets) {
+        b.objects.clear();
+        b.ids.clear();
+        b.results.clear();
     }
     for (auto& [id, ptr]: inputs) {
-        auto* obj = ptr.get();
-        auto* mapping = obj->mapping;
-        if (!mapping) continue;
-        for (size_t i = 0; i < NUM_INPUTS; ++i) {
-            const TotalInputMask btn = static_cast<TotalInputMask>(1 << i);
-            if (mapping->getKeymap().find(btn) != mapping->getKeymap().end()) {
-                buckets[btn].push_back( obj );
-            }
-        }
+        add_to_buckets(id);
     }
 }
 void InputController::remove_from_buckets(ObjectID id) {
-    for (auto& [mask, bucket]: buckets) {
-        bucket.remove_if( [id](InputObject* obj){ return obj->id == id; } );
+    for (auto& [mask, b]: buckets) {
+        auto oit = b.objects.begin();
+        auto iit = b.ids.begin();
+        while (oit != b.objects.end()) {
+            if ((*oit)->id == id) {
+                oit = b.objects.erase(oit);
+                iit = b.ids.erase(iit);
+            } else {
+                ++oit;
+                ++iit;
+            }
+        }
+        b.results.resize(b.objects.size());
     }
 }
 void InputController::add_to_buckets(ObjectID id) {
@@ -89,27 +98,32 @@ void InputController::add_to_buckets(ObjectID id) {
     auto* obj = it->second.get();
     auto* mapping = obj->mapping;
     if (!mapping) return;
+    const auto& km = mapping->getKeymap();
     for (size_t i = 0; i < NUM_INPUTS; ++i) {
         const TotalInputMask btn = static_cast<TotalInputMask>(1 << i);
-        if (mapping->getKeymap().find(btn) != mapping->getKeymap().end()) {
-            buckets[btn].push_back( obj );
-        }
+        auto kit = km.find(btn);
+        if (kit == km.end() || kit->second == nullptr) continue;
+        auto& b = buckets[btn];
+        b.objects.push_back(obj);
+        b.ids.push_back(obj->id);
+        b.results.resize(b.objects.size());
     }
 }
 
-InputController::HandlerValues InputController::fire(TotalInputMask btn, RawInput& code) const {
-    HandlerValues results;
+InputController::FireResult InputController::fire(TotalInputMask btn, RawInput& code) const {
     auto it = buckets.find(btn);
-    if (it == buckets.end()) return results;
-    const auto& bucket = it->second;
-    auto i = 0;
-    for (auto* obj: bucket) {
-        auto* mapping = obj->mapping;
-        if (!mapping) continue;
-        auto handler_result = mapping->handle(*obj, btn, code, this->logger);
-        results.at(i++) = {obj->id, handler_result};
+    if (it == buckets.end()) return { {}, {} };
+    const auto& b = it->second;
+    const size_t n = b.objects.size();
+    size_t i = 0;
+    for (auto* obj: b.objects) {
+        // bucket invariant (add_to_buckets): obj->mapping non-null and has a non-null handler for btn
+        b.results[i++] = obj->mapping->handle(*obj, btn, code, this->logger);
     }
-    return results;
+    return {
+        std::span<const ObjectID>(b.ids.data(), n),
+        std::span<const HandlerReturnType>(b.results.data(), n)
+    };
 }
 
 Logger* InputController::get_logger() {
@@ -121,6 +135,17 @@ void InputController::remove( ObjectID id ) {
 }
 bool InputController::has( ObjectID id ) {
     return inputs.find( id ) != inputs.end();
+}
+void InputController::initialize( ObjectID id ) {
+    auto it = inputs.find(id);
+    if (it == inputs.end()) {
+        throw std::out_of_range("InputController::initialize: ObjectID " + std::to_string(id) + " not present");
+    }
+    auto& obj = *it->second;
+    if (obj.initialized) return; //ignore reinit
+    obj.init();
+    obj.initialized = true;
+    add_to_buckets(id); //mapping is now set, so re-evaluate bucket membership
 }
 
 void InputController::adopt(InputController&& other) {
@@ -152,43 +177,4 @@ std::ostream& operator<<(std::ostream& os, const InputController& i) {
 Logger& operator<<(Logger& log, const InputController& i) {
     log << "InputController [" << i.size() << "]";
     return log;
-}
-
-//InputMouse
-InputMouse::InputMouse(ObjectID id, std::string_view name):
-    InputObject(id, name, InputTypes::MOUSE),
-    pos()
-{}
-
-void InputMouse::init() {
-    os.spawn();
-    os.enableKey(BTN_LEFT);
-    os.enableKey(BTN_RIGHT);
-    os.enableRelAxis(REL_X);
-    os.enableRelAxis(REL_Y);
-    os.create(name);
-    return;
-}
-void InputMouse::button_click(int btn) {
-    os.emit(EV_KEY, btn, 1); os.sync();
-    os.emit(EV_KEY, btn, 0); os.sync();
-}
-void InputMouse::button_down(int btn) {
-    os.emit(EV_KEY, btn, 1); os.sync();
-}
-void InputMouse::button_up(int btn) {
-    os.emit(EV_KEY, btn, 0); os.sync();
-}
-void InputMouse::move(InputMouse::coordinate delta) {
-    pos += delta;
-    os.emit(EV_REL, REL_X, delta.x);
-    os.emit(EV_REL, REL_Y, delta.y);
-    os.sync();
-}
-void InputMouse::set_pos(InputMouse::coordinate newPos) {
-    move(newPos - pos);
-}
-
-InputMouse::coordinate InputMouse::get_pos() const{
-    return pos;
 }

@@ -5,8 +5,8 @@
 #include <unistd.h>
 
 
-#include "server/device_handling/Inputs.h"
-#include "server/device_handling/mappings.h"
+// #include "server/device_handling/Inputs.h"
+#include "server/device_handling/static_inputs.h"
 
 using std::cout, std::endl, std::cin, std::string;
 namespace {
