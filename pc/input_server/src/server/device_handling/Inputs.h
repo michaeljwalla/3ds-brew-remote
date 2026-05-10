@@ -1,4 +1,5 @@
 #pragma once
+#include <list>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -63,9 +64,12 @@ class InputController {
         using ObjectID = InputObject::ObjectID;
         using ObjectName = InputObject::ObjectName;
         using uptr = std::unique_ptr<InputObject>;
+        using HandlerValues = std::array<std::pair<ObjectID, HandlerReturnType>, NUM_INPUTS>;
     private:
 
         std::unordered_map<ObjectID, uptr> inputs;
+        std::unordered_map<ButtonMask, std::list<InputObject*>> buckets;
+
         static ObjectID counter;
         Logger* logger; //non owning
 
@@ -78,6 +82,12 @@ class InputController {
         template<isInputObject I>
         uptr _create(const ObjectName& name, bool init);
 
+        //buckets used so fire() fires only what has handles defined for some ButtonMask
+        //the tradeoff would be faster fire() and the extra change-overhead is fine since changing
+        //inputs is not expected to occur during "live use"
+        void regenerate_buckets();
+        void remove_from_buckets(ObjectID id);
+        void add_to_buckets(ObjectID id);
         //
         public:
         InputController();
@@ -92,6 +102,7 @@ class InputController {
         InputController(InputController&& other) noexcept;
         InputController& operator=(InputController&& other) noexcept;
         //
+        
         void remove( ObjectID id );
         bool has( ObjectID id );
 
@@ -113,6 +124,8 @@ class InputController {
 
         size_t size() const;
 
+        //iterate through each InputObject with a handler for the ButtonMask
+        HandlerValues fire(ButtonMask btn, RawInput& code) const;
         //hold by ObjectID and use get()
         std::vector<InputObject*> get_objects() const;
 
@@ -171,6 +184,7 @@ InputObject::ObjectID InputController::create(bool init) {
     uptr i = _create<I>(init);
     auto id = i->id;
     emplace( std::move(i) );
+    add_to_buckets(id);
     return id;
 } 
 template<isInputObject I>
@@ -179,6 +193,7 @@ InputObject::ObjectID InputController::create(const ObjectName& name, bool init)
     uptr i = _create<I>(name, init);
     auto id = i->id;
     emplace( std::move(i) );
+    add_to_buckets(id);
     return id;
 }
 
