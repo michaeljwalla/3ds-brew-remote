@@ -14,7 +14,7 @@
 
 // Constants from receiver.py
 // threshold to flag as 'change,' any more can be handled by Handlers.
-static constexpr float DELTA_EPSILON = 0.001f;
+static constexpr float DELTA_EPSILON = 0.01f;
 
 static constexpr float HANDSHAKE_TIMEOUT_S = 0.5f;
 static constexpr int HANDSHAKE_RETRIES = 30;

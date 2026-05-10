@@ -118,7 +118,7 @@ InputController::FireResult InputController::fire(TotalInputMask btn, RawInput c
     size_t i = 0;
     for (auto* obj: b.objects) {
         // bucket invariant (add_to_buckets): obj->mapping non-null and has a non-null handler for btn
-        b.results[i++] = obj->mapping->handle(obj, btn, code, this->logger);
+        b.results[i++] = obj->mapping->handle(btn, {obj, code, this->logger});
     }
     return {
         std::span<const ObjectID>(b.ids.data(), n),

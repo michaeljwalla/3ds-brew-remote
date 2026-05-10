@@ -11,8 +11,8 @@ namespace {
     using namespace mappingtypes;
     //
     using IO = InputObject;
-    using Datagram = const RawInput&;
     using pair = std::pair<InputTypes, InputMap<IO>>;
+    using Params = HandlerParams<InputObject>;
 
     #define ON(a,b) (static_cast<uint32_t>(a) & static_cast<uint32_t>(b))
     #define LOG_BTN(mask, code, log) \
@@ -24,87 +24,89 @@ namespace {
 
 std::unordered_map<InputTypes, InputMap<InputObject>> available {
     pair(InputTypes::NONE, {}),
-    pair(InputTypes::MOUSE, {}),
+    pair(InputTypes::MOUSE, {"MOUSE", {
+        {}
+    }}),
     pair(InputTypes::LOGGING, { "LOGGING", {
-        {TotalInputMask::A, [](IO* in, Datagram code, Logger* log) {
-            LOG_BTN(ButtonMask::A, code, log);
+        {TotalInputMask::A, [](Params data) {
+            LOG_BTN(ButtonMask::A, data.code, data.log);
             return 0;
         }},
-        {TotalInputMask::B, [](IO* in, Datagram code, Logger* log) {
-            LOG_BTN(ButtonMask::B, code, log);
+        {TotalInputMask::B, [](Params data) {
+            LOG_BTN(ButtonMask::B, data.code, data.log);
             return 0;
         }},
-        {TotalInputMask::X, [](IO* in, Datagram code, Logger* log) {
-            LOG_BTN(ButtonMask::X, code, log);
+        {TotalInputMask::X, [](Params data) {
+            LOG_BTN(ButtonMask::X, data.code, data.log);
             return 0;
         }},
-        {TotalInputMask::Y, [](IO* in, Datagram code, Logger* log) {
-            LOG_BTN(ButtonMask::Y, code, log);
+        {TotalInputMask::Y, [](Params data) {
+            LOG_BTN(ButtonMask::Y, data.code, data.log);
             return 0;
         }},
-        {TotalInputMask::LEFT, [](IO* in, Datagram code, Logger* log) {
-            LOG_BTN(ButtonMask::LEFT, code, log);
+        {TotalInputMask::LEFT, [](Params data) {
+            LOG_BTN(ButtonMask::LEFT, data.code, data.log);
             return 0;
         }},
-        {TotalInputMask::RIGHT, [](IO* in, Datagram code, Logger* log) {
-            LOG_BTN(ButtonMask::RIGHT, code, log);
+        {TotalInputMask::RIGHT, [](Params data) {
+            LOG_BTN(ButtonMask::RIGHT, data.code, data.log);
             return 0;
         }},
-        {TotalInputMask::UP, [](IO* in, Datagram code, Logger* log) {
-            LOG_BTN(ButtonMask::UP, code, log);
+        {TotalInputMask::UP, [](Params data) {
+            LOG_BTN(ButtonMask::UP, data.code, data.log);
             return 0;
         }},
-        {TotalInputMask::DOWN, [](IO* in, Datagram code, Logger* log) {
-            LOG_BTN(ButtonMask::DOWN, code, log);
+        {TotalInputMask::DOWN, [](Params data) {
+            LOG_BTN(ButtonMask::DOWN, data.code, data.log);
             return 0;
         }},
-        {TotalInputMask::L, [](IO* in, Datagram code, Logger* log) {
-            LOG_BTN(ButtonMask::L, code, log);
+        {TotalInputMask::L, [](Params data) {
+            LOG_BTN(ButtonMask::L, data.code, data.log);
             return 0;
         }},
-        {TotalInputMask::R, [](IO* in, Datagram code, Logger* log) {
-            LOG_BTN(ButtonMask::R, code, log);
+        {TotalInputMask::R, [](Params data) {
+            LOG_BTN(ButtonMask::R, data.code, data.log);
             return 0;
         }},
-        {TotalInputMask::ZL, [](IO* in, Datagram code, Logger* log) {
-            LOG_BTN(ButtonMask::ZL, code, log);
+        {TotalInputMask::ZL, [](Params data) {
+            LOG_BTN(ButtonMask::ZL, data.code, data.log);
             return 0;
         }},
-        {TotalInputMask::ZR, [](IO* in, Datagram code, Logger* log) {
-            LOG_BTN(ButtonMask::ZR, code, log);
+        {TotalInputMask::ZR, [](Params data) {
+            LOG_BTN(ButtonMask::ZR, data.code, data.log);
             return 0;
         }},
-        {TotalInputMask::SELECT, [](IO* in, Datagram code, Logger* log) {
-            LOG_BTN(ButtonMask::SELECT, code, log);
+        {TotalInputMask::SELECT, [](Params data) {
+            LOG_BTN(ButtonMask::SELECT, data.code, data.log);
             return 0;
         }},
-        {TotalInputMask::START, [](IO* in, Datagram code, Logger* log) {
-            LOG_BTN(ButtonMask::START, code, log);
+        {TotalInputMask::START, [](Params data) {
+            LOG_BTN(ButtonMask::START, data.code, data.log);
             return 0;
         }},
-        {TotalInputMask::TOUCH, [](IO* in, Datagram code, Logger* log) {
-            LOG_DELTA("TOUCH", code.touch_active, log);
+        {TotalInputMask::TOUCH, [](Params data) {
+            LOG_DELTA("TOUCH", data.code.touch_active, data.log);
             return 0;
         }},
-        {TotalInputMask::CIRCLE_PAD, [](IO* in, Datagram code, Logger* log) {
-            LOG_DELTA("CIRCLE_PAD", true, log);
+        {TotalInputMask::CIRCLE_PAD, [](Params data) {
+            LOG_DELTA("CIRCLE_PAD", true, data.log);
             return 0;
         }},
-        {TotalInputMask::CIRCLE_PAD_PRO, [](IO* in, Datagram code, Logger* log) {
-            LOG_DELTA("CIRCLE_PAD_PRO", true, log);
+        {TotalInputMask::CIRCLE_PAD_PRO, [](Params data) {
+            LOG_DELTA("CIRCLE_PAD_PRO", true, data.log);
             return 0;
         }},
-        {TotalInputMask::GYRO, [](IO* in, Datagram code, Logger* log) {
-            LOG_DELTA("GYRO", true, log);
+        {TotalInputMask::GYRO, [](Params data) {
+            LOG_DELTA("GYRO", true, data.log);
             return 0;
         }},
-        {TotalInputMask::ACCEL, [](IO* in, Datagram code, Logger* log) {
-            LOG_DELTA("ACCEL", code.touch_active, log);
+        {TotalInputMask::ACCEL, [](Params data) {
+            LOG_DELTA("ACCEL", data.code.touch_active, data.log);
             return 0;
         }},
         
-        // {TotalInputMask::ALWAYS, [](IO* in, Datagram code, Logger* log) {
-        //     LOG_DELTA("PACKET", true, log);
+        // {TotalInputMask::ALWAYS, [](Params data) {
+        //     LOG_DELTA("PACKET", true, data.log);
         //     return 0;
         // }},
         
