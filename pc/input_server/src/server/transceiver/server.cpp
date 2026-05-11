@@ -141,7 +141,8 @@ uint32_t get_diffs(RawInput& prev, RawInput& cur) {
         (is_diff(prev.accel[2], cur.accel[2]))
     ) << 18;
     //always runs per packet (not guaranteed rate)
-    diff |= 1u << 19;
+    diff |= 1u << 19; //ALWAYS
+    diff |= 1u << 20; //AFTER
     return diff;
 }
 //main receiver runner

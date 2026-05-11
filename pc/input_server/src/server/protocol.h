@@ -50,15 +50,20 @@ enum class TotalInputMask: uint32_t {
     ZR     = 1 << 11,
     SELECT = 1 << 12,
     START  = 1 << 13,
+    //"fake" states
     CIRCLE_PAD = 1 << 14,
     CIRCLE_PAD_PRO = 1 << 15,
     TOUCH = 1 << 16,
     GYRO = 1 << 17,
     ACCEL = 1 << 18,
-    ALWAYS = 1 << 19 // just in case something wants to run at every accept
+    //everything above^^ fires conditinoally
+
+    //really fake states
+    ALWAYS = 1 << 19, // just in case something wants to run at every accept
+    AFTER = 1 << 20 //synonymous with ALWAYS, just an explicit extra 
 };
 
-static constexpr uint16_t NUM_INPUTS = 20;
+static constexpr uint16_t NUM_INPUTS = 21;
 static constexpr int REFRESH_RATE = 60; //Hz
 
 //
