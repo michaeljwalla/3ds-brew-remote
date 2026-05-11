@@ -108,6 +108,7 @@ namespace {
         const time_point last,
         const std::chrono::steady_clock ::time_point cur, 
         const coords<float>& dir,
+        const coords<float> scale,
         time_point& last_success,
         coords<float>& velocity,
         coords<float>& debt)
@@ -148,9 +149,8 @@ namespace {
             velocity = cfg.velocity;
         }
 
-
         //calculate losses from integer floor
-        auto final = (dir * velocity * diff * ms_to_s) + debt;
+        auto final = scale * (dir * velocity * diff * ms_to_s) + debt;
         auto final_int = static_cast<coords<int16_t>>(final);
         //still remember distance traveled even if no int delta occurs
         if (!final_int.magnitude()) {
@@ -161,6 +161,18 @@ namespace {
             return final_int;
         }
     }
+
+    template<typename F>
+    class FireAfterScope {
+        F call;
+    public:
+        explicit FireAfterScope(F f) : call{std::move(f)} {}
+        ~FireAfterScope() { call(); }
+    };
+
+    // deduction guide
+    template<typename F>
+    FireAfterScope(F) -> FireAfterScope<F>;
 
     template<typename T>
     class UpdateAfterScope{
@@ -173,12 +185,12 @@ namespace {
             upd = std::move(value);
             return;
         }
-        static std::unique_ptr<UpdateAfterScope> record(T& to_update, T with_value) {
-            return std::make_unique<UpdateAfterScope>( to_update, with_value );
-        }
-        
     };
+    template<typename T>
+    UpdateAfterScope(T) -> UpdateAfterScope<T>;
     
+    template<typename T>
+    T& as(void* x) { return *static_cast<T*>(x); }
 }
 
 std::unordered_map<InputTypes, InputMap<InputObject>> available {
@@ -187,7 +199,7 @@ std::unordered_map<InputTypes, InputMap<InputObject>> available {
         //left click
         {Options::L, [](Params data) {
             auto buttons = data.code.buttons;
-            auto& mouse = *static_cast<InputMouse*>(data.parent);
+            auto& mouse = as<InputMouse>(data.parent);
 
             if ( ON(Buttons::L, buttons) ) mouse.button_down( BTN_LEFT );
             else mouse.button_up( BTN_LEFT );
@@ -195,7 +207,7 @@ std::unordered_map<InputTypes, InputMap<InputObject>> available {
         }},
         {Options::A, [](Params data) {
             auto buttons = data.code.buttons;
-            auto& mouse = *static_cast<InputMouse*>(data.parent);
+            auto& mouse = as<InputMouse>(data.parent);
 
             if ( ON(Buttons::A, buttons) ) mouse.button_down( BTN_LEFT );
             else mouse.button_up( BTN_LEFT );
@@ -205,7 +217,7 @@ std::unordered_map<InputTypes, InputMap<InputObject>> available {
         //right click
         {Options::R, [](Params data) {
             auto buttons = data.code.buttons;
-            auto& mouse = *static_cast<InputMouse*>(data.parent);
+            auto& mouse = as<InputMouse>(data.parent);
 
             if ( ON(Buttons::R, buttons) ) mouse.button_down( BTN_RIGHT );
             else mouse.button_up( BTN_RIGHT );
@@ -213,7 +225,7 @@ std::unordered_map<InputTypes, InputMap<InputObject>> available {
         }},
         {Options::B, [](Params data) {
             auto buttons = data.code.buttons;
-            auto& mouse = *static_cast<InputMouse*>(data.parent);
+            auto& mouse = as<InputMouse>(data.parent);
 
             if ( ON(Buttons::B, buttons) ) mouse.button_down( BTN_RIGHT );
             else mouse.button_up( BTN_RIGHT );
@@ -225,7 +237,7 @@ std::unordered_map<InputTypes, InputMap<InputObject>> available {
             //each lambda tracks its own last to prevent diff accumulation
             
             float to_s = 0.001;
-            auto& mouse = *static_cast<InputMouse*>(data.parent);
+            auto& mouse = as<InputMouse>(data.parent);
             auto buttons = data.code.buttons;
             auto& cfg = config::get<InputMouse>();
             auto& cfg_generics = config::get<TotalInputMask>();
@@ -237,22 +249,42 @@ std::unordered_map<InputTypes, InputMap<InputObject>> available {
                 static coords<float> debt{0,0};
                 static coords<float> velocity{0, 0};
                 static auto last_success = last;
+                static bool last_scrolled = false;
                 //
+                auto scroll = cfg.scroll;
+                bool  is_scrolling = scroll.enabled && ON(scroll.enable_key, buttons);
+                if (is_scrolling ^ last_scrolled) velocity = {0,0}; // reset (accel'd v) on state change 
 
                 auto cur = clock::now();
-                auto _ = UpdateAfterScope<time_point>::record(last, cur);
+                auto _ = FireAfterScope([cur, is_scrolling]() {
+                    last = cur;
+                    last_scrolled = is_scrolling;
+                    return;
+                });
 
+                // direction to move
                 coords<float> dir;
                 bool success = InputMouse_get_direction(data.code, cfg_generics, dir);
-                if (!success) return false;
+                if (!success) {
+                    return false;
+                }
+
+                coords<float> scale = ((is_scrolling) ?
+                    coords<float>(scroll.dampener, -scroll.dampener) * (scroll.smooth ? 120 : 1)
+                    : static_cast<coords<float>>(v_one)
+                );
+
+
+                // amount to move
                 auto delta = InputMouse_get_delta(
-                    data.code, cfg, last, cur, dir, //consts
+                    data.code, cfg, last, cur, dir, scale, //consts
                     last_success, velocity, debt    //modified
                 );
                 if (!delta.magnitude()) return false;
 
-                if (ON(cfg.scroll_switch, buttons)) {
-                    //mouse.scroll(delta);
+                //
+                if (is_scrolling) {
+                    scroll.smooth ? mouse.scroll_smooth(delta) : mouse.scroll_smooth(delta);
                 } else {
                     mouse.move(delta);
                 }
