@@ -18,14 +18,14 @@ namespace {
     using pair = std::pair<InputTypes, InputMap<IO>>;
     using Params = HandlerParams<InputObject>;
 
+    using LS = LoggerState;
+
     //all options
     using Options = TotalInputMask;
     //just buttons, included within options
     using Buttons = ButtonMask;
 
     using clock = std::chrono::steady_clock;
-    using ms = std::chrono::milliseconds;
-    
 
     #define ON(a,b) (static_cast<uint32_t>(a) & static_cast<uint32_t>(b))
     #define LOG_BTN(mask, code, log) \
@@ -49,8 +49,18 @@ namespace {
 std::unordered_map<InputTypes, InputMap<InputObject>> available {
     pair(InputTypes::NONE, {}),
     pair(InputTypes::MOUSE, {"MOUSE", {
+        {Options::L, [](Params data) {
+            auto buttons = data.code.buttons;
+            auto& mouse = *static_cast<InputMouse*>(data.parent);
+
+            if ( ON(Buttons::L, buttons) ) mouse.button_down( BTN_LEFT );
+            else mouse.button_up( BTN_LEFT );
+            return 0;
+        }},
         {Options::ALWAYS, [](Params data) {
             static auto last = clock::now();
+            static coords<float> debt{0,0};
+            float to_s = 0.001;
 
             auto& mouse = *static_cast<InputMouse*>(data.parent);
             auto buttons = data.code.buttons;
@@ -59,14 +69,24 @@ std::unordered_map<InputTypes, InputMap<InputObject>> available {
             //direction
             coords<float> dir = coords<int>{
                 (ON(Buttons::LEFT, buttons) ? -1 : 0) + (ON(Buttons::RIGHT, buttons) ? 1 : 0),
-                (ON(Buttons::DOWN, buttons) ? -1 : 0) + (ON(Buttons::UP, buttons) ? 1 : 0)
+                (ON(Buttons::UP, buttons) ? -1 : 0) + (ON(Buttons::DOWN, buttons) ? 1 : 0)
             }.normalized();
-
             //apply modifications (cfg, time)
             auto cur = clock::now();
-            auto diff = CAP_DELTA_MS( GET_DELTA_MS(cur, std::exchange(last, cur)), 1000);
+            auto raw_diff = GET_DELTA_MS(std::exchange(last, cur), cur);
+            auto diff = CAP_DELTA_MS(raw_diff, 1000);
 
-            mouse.move( static_cast<coords<int16_t>>(dir * cfg.speed * diff) );
+            //*(data.log) << diff << "ms ";
+            auto final = (dir * cfg.speed * diff * to_s) + debt;
+            auto final_int = static_cast<coords<int16_t>>(final);
+
+            //still remember distance traveled even if no int delta occurs
+            if (!final_int.magnitude())
+                debt = final;
+            else {
+                mouse.move( final_int );
+                debt = final - final_int;
+            }
             return 0;
         }}
     }}),
