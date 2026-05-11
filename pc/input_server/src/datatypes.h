@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cmath>
+#include <ostream>
 #include <type_traits>
+#include "logger.h"
 
 template<typename T = float>
 struct coords {
@@ -91,10 +93,22 @@ struct coords {
     }
     auto normalized() const {
         using R = std::common_type_t<T, float>;
-        return *this / this->magnitude();
-    } 
-};
+        auto mag = this->magnitude();
+        if (mag == 0) return coords<R>{0, 0};
+        return *this / mag;
+    }
 
+};
+template<typename T>
+inline std::ostream& operator<<(std::ostream& out, const coords<T>& c) {
+    out << "[" << c.x << ", " << c.y << "]";
+    return out;
+}
+template<typename T>
+inline Logger& operator<<(Logger& out, const coords<T>& c) {
+    out << "[" << c.x << ", " << c.y << "]";
+    return out;
+}
 template<typename T, typename U, typename = std::enable_if_t<std::is_arithmetic_v<U>>>
 coords<std::common_type_t<T, U>> operator*(U scalar, const coords<T>& c) {
     return c * scalar;
