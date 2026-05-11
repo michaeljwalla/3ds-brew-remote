@@ -7,6 +7,7 @@
 #include "logger.h"
 #include <chrono>
 #include <cstdint>
+#include <memory>
 #include <utility>
 #include "datatypes.h"
 
@@ -17,7 +18,6 @@ namespace {
     using IO = InputObject;
     using pair = std::pair<InputTypes, InputMap<IO>>;
     using Params = HandlerParams<InputObject>;
-
     using LS = LoggerState;
 
     //all options
@@ -26,6 +26,7 @@ namespace {
     using Buttons = ButtonMask;
 
     using clock = std::chrono::steady_clock;
+    using time_point = clock::time_point;
 
     #define ON(a,b) (static_cast<uint32_t>(a) & static_cast<uint32_t>(b))
     #define LOG_BTN(mask, code, log) \
@@ -61,6 +62,123 @@ namespace {
     #define IS_SIMILAR(a,b, p, eps) \
         (((a) == 0 || (b) == 0) ? false : \
         (WITHIN((a)/(b), (p)*1e-2, (eps)*1e-2) || WITHIN((b)/(a), (p)*1e-2, (eps)*1e-2)))
+    
+    bool InputMouse_get_direction(const RawInput& data, const Config<TotalInputMask>& settings, coords<float>& out) {
+        coords<float> dir;
+        auto& buttons = data.buttons;
+        if (settings.circle_pads.main.enabled) {
+            auto dz = settings.circle_pads.dead_zone;
+            auto cp = data.circle_pad;
+            dir = coords<float>{
+                IGNORE(*cp, dz, 0) + -IGNORE(-*cp, dz, 0),           //works for if dir is neg/pos (one is always dropped)
+                -((IGNORE(*(cp+1), dz, 0) + -IGNORE(-*(cp+1), dz, 0))),
+            };
+            if (dir.magnitude()) {
+                std::exchange(out, dir);
+                return true;
+            }
+        }
+        if (settings.circle_pads.pro.enabled) {
+            auto dz = settings.circle_pads.dead_zone;
+            auto cp = data.circle_pad_pro;
+            dir = coords<float>{
+                IGNORE(*cp, dz, 0) + IGNORE(-*cp, dz, 0),           //works for if dir is neg/pos (one is always dropped)
+                -((IGNORE(*(cp+1), dz, 0) + IGNORE(-*(cp+1), dz, 0))),
+            };
+            if (dir.magnitude()) {
+                std::exchange(out, dir);
+                return true;
+            }
+        }
+        //
+        dir = coords<int>{
+            (ON(Buttons::LEFT, buttons) ? -1 : 0) + (ON(Buttons::RIGHT, buttons) ? 1 : 0),
+            -((ON(Buttons::DOWN, buttons) ? -1 : 0) + (ON(Buttons::UP, buttons) ? 1 : 0))
+        }.normalized();
+        if (dir.magnitude()) {
+            std::exchange(out,dir);
+            return true;
+        }
+        return false;
+    }
+
+    coords<int16_t> InputMouse_get_delta(
+        const RawInput& data,
+        const Config<InputMouse>& cfg,
+        const time_point last,
+        const std::chrono::steady_clock ::time_point cur, 
+        const coords<float>& dir,
+        time_point& last_success,
+        coords<float>& velocity,
+        coords<float>& debt)
+    {
+        float ms_to_s = 1e-3;
+        auto buttons = data.buttons;
+        auto raw_diff = GET_DELTA_MS(last, cur);
+        auto diff = CAP_DELTA_MS(raw_diff, 1000);
+        auto accel = cfg.accelerate;
+        auto delta_last_success = GET_DELTA_MS(last_success, cur);
+
+        //if (!dir.magnitude()) return {0, 0};
+        if (accel.enabled && delta_last_success > accel.preserve_ms) velocity *= 0;
+        last_success = last;
+
+        //only accel up, not down (insta stop)
+        if (accel.enabled && !ON(accel.temp_disable, buttons)) {
+            float dv = accel.rate * diff * ms_to_s;
+            float add = ((raw_diff < accel.start_double_tap_ms //try to avoid lag spikes
+                && delta_last_success > accel.start_double_tap_ms
+                && delta_last_success < accel.end_double_tap_ms)
+            ? accel.double_tap_add : 0);
+            
+            // decided to move addvec outside bounds; allows extra speeding.
+            auto vm = velocity.magnitude(), am = accel.max_v.magnitude();
+            if (!add && (vm < am)) {
+                velocity = coords<float>{
+                MAX(MIN(velocity.x + dv, accel.max_v.x), accel.min_v.x),
+                MAX(MIN(velocity.y + dv, accel.max_v.y), accel.min_v.y)
+                };
+            } else if (add) { //the double click exceeded barrier
+                velocity = coords<float> {
+                    MAX(velocity.x + add, accel.min_v.x),
+                    MAX(velocity.y + add, accel.min_v.y)
+                };
+            }
+        } else {
+            velocity = cfg.velocity;
+        }
+
+
+        //calculate losses from integer floor
+        auto final = (dir * velocity * diff * ms_to_s) + debt;
+        auto final_int = static_cast<coords<int16_t>>(final);
+        //still remember distance traveled even if no int delta occurs
+        if (!final_int.magnitude()) {
+            debt = std::move(final);
+            return {0, 0};
+        } else {
+            debt = std::move(final - final_int);
+            return final_int;
+        }
+    }
+
+    template<typename T>
+    class UpdateAfterScope{
+        private:
+            T& upd;
+            T value;
+        public:
+        explicit UpdateAfterScope(T& to_update, T with_value): upd{to_update}, value{with_value} {}
+        ~UpdateAfterScope() {
+            upd = std::move(value);
+            return;
+        }
+        static std::unique_ptr<UpdateAfterScope> record(T& to_update, T with_value) {
+            return std::make_unique<UpdateAfterScope>( to_update, with_value );
+        }
+        
+    };
+    
 }
 
 std::unordered_map<InputTypes, InputMap<InputObject>> available {
@@ -110,7 +228,7 @@ std::unordered_map<InputTypes, InputMap<InputObject>> available {
             auto& mouse = *static_cast<InputMouse*>(data.parent);
             auto buttons = data.code.buttons;
             auto& cfg = config::get<InputMouse>();
-            auto& cfg_keys = config::get<TotalInputMask>();
+            auto& cfg_generics = config::get<TotalInputMask>();
             
             //calculate direction/movement
             //y axis flipped since origin is top left
@@ -120,93 +238,26 @@ std::unordered_map<InputTypes, InputMap<InputObject>> available {
                 static coords<float> velocity{0, 0};
                 static auto last_success = last;
                 //
+
                 auto cur = clock::now();
-                auto raw_diff = GET_DELTA_MS(std::exchange(last, cur), cur);
-                auto diff = CAP_DELTA_MS(raw_diff, 1000);
-                //
+                auto _ = UpdateAfterScope<time_point>::record(last, cur);
+
                 coords<float> dir;
-                bool success = false;
-                if (cfg_keys.circle_pads.main.enabled) {
-                    auto dz = cfg_keys.circle_pads.dead_zone;
-                    auto cp = data.code.circle_pad;
-                    dir = coords<float>{
-                        IGNORE(*cp, dz, 0) + -IGNORE(-*cp, dz, 0),           //works for if dir is neg/pos (one is always dropped)
-                        -((IGNORE(*(cp+1), dz, 0) + -IGNORE(-*(cp+1), dz, 0))),
-                    };
-                    success = dir.magnitude();
-                }
-                if (!success & cfg_keys.circle_pads.pro.enabled) {
-                    auto dz = cfg_keys.circle_pads.dead_zone;
-                    auto cp = data.code.circle_pad_pro;
-                    dir = coords<float>{
-                        IGNORE(*cp, dz, 0) + IGNORE(-*cp, dz, 0),           //works for if dir is neg/pos (one is always dropped)
-                        -((IGNORE(*(cp+1), dz, 0) + IGNORE(-*(cp+1), dz, 0))),
-                    };
-                    success = dir.magnitude();
-                }
-                if (!success) {
-                    dir = coords<int>{
-                        (ON(Buttons::LEFT, buttons) ? -1 : 0) + (ON(Buttons::RIGHT, buttons) ? 1 : 0),
-                        -((ON(Buttons::DOWN, buttons) ? -1 : 0) + (ON(Buttons::UP, buttons) ? 1 : 0))
-                    }.normalized();
-                    success = dir.magnitude();
-                }
+                bool success = InputMouse_get_direction(data.code, cfg_generics, dir);
+                if (!success) return false;
+                auto delta = InputMouse_get_delta(
+                    data.code, cfg, last, cur, dir, //consts
+                    last_success, velocity, debt    //modified
+                );
+                if (!delta.magnitude()) return false;
 
-
-                auto accel = cfg.accelerate;
-                auto delta_last_success = GET_DELTA_MS(last_success, cur);
-                if (!success) { //nothing requested.
-                    if (
-                        !accel.enabled \
-                        || delta_last_success > accel.preserve_ms
-                    ) {
-                        velocity *= 0;
-                    }
-                    return false;
-                }
-                last_success = last;
-
-                //
-                // apply time modifications (cfg, time)
-
-                if (accel.enabled && !ON(accel.temp_disable, buttons) && dir.magnitude())
-                    // &&  IS_SIMILAR(velocity.magnitude(), accel.max_v.magnitude(), 99, 1))
-                { //only accel up, not down (insta stop)
-                    float dv = accel.rate * diff * to_s;
-                    float add = ((raw_diff < accel.start_double_tap_ms //try to avoid lag spikes
-                        && delta_last_success > accel.start_double_tap_ms
-                        && delta_last_success < accel.end_double_tap_ms)
-                    ? accel.double_tap_add : 0);
-                    
-                    // decided to move addvec outside bounds; allows extra speeding.
-                    auto vm = velocity.magnitude(), am = accel.max_v.magnitude();
-                    if (!add && (vm < am)) {
-                        velocity = coords<float>{
-                        MAX(MIN(velocity.x + dv, accel.max_v.x), accel.min_v.x),
-                        MAX(MIN(velocity.y + dv, accel.max_v.y), accel.min_v.y)
-                        };
-                    } else if (add) { //the double click exceeded barrier
-                        velocity = coords<float> {
-                            MAX(velocity.x + add, accel.min_v.x),
-                            MAX(velocity.y + add, accel.min_v.y)
-                        };
-                    }
-                    // determine a double-click
+                if (ON(cfg.scroll_switch, buttons)) {
+                    //mouse.scroll(delta);
                 } else {
-                    velocity = cfg.velocity;
+                    mouse.move(delta);
                 }
 
-                auto final = (dir * velocity * diff * to_s) + debt;
-                auto final_int = static_cast<coords<int16_t>>(final);
-                //still remember distance traveled even if no int delta occurs
-                if (!final_int.magnitude()) {
-                    debt = final;
-                    return false;
-                } else {
-                    mouse.move( final_int );
-                    debt = final - final_int;
-                    return true;
-                }
+                return true;
             }();
 
             return 0;
