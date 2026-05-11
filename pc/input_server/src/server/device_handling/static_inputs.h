@@ -14,6 +14,10 @@ class InputMouse: public InputObject {
         void button_up(int btn);
         void button_click(int btn);
         void move(coordinate delta);
+        //1 = 1 line
+        void scroll(coordinate delta);
+        //120 = 1 line
+        void scroll_smooth(coordinate delta);
         void set_pos(coordinate newPos);
         coordinate get_pos() const;
 

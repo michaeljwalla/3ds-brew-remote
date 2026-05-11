@@ -54,11 +54,12 @@ struct Config<InputMouse> {
     };
     struct scroll {
         bool enabled = true;
-        ButtonMask mouse_switch = ButtonMask::X;
+        bool smooth = true;
+        ButtonMask enable_key = ButtonMask::X;
 
         //any time mouse movement is captured with ON(...mouse_switch)
         //will attempt to scroll L/R/U/D
-        
+        float dampener = 0.05;
         //treat release within x ms as a middle-click
         float is_click_threshold_ms = 100;
 
@@ -67,7 +68,7 @@ struct Config<InputMouse> {
     //a multiplier for moving the mouse
     fcoord velocity = v_one * global_mul;
     accel accelerate;
-    ButtonMask scroll_switch = ButtonMask::X;
+    scroll scroll;
     
     
 
