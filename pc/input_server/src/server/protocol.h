@@ -3,16 +3,19 @@
 #include <cstdint>
 #include <sys/types.h>
 
+namespace {
+    constexpr std::array<uint8_t, 2> MAGIC = { 0x3d, 0x53 };
+    constexpr uint8_t VERSION = 2;
+    constexpr std::array<uint16_t, 2> TOUCHSCREEN_DIMS = {320, 240};
+    constexpr uint16_t PACKET_SIZE = 55;
 
-static constexpr std::array<uint8_t, 2> MAGIC = { 0x3d, 0x53 };
-static constexpr uint8_t VERSION = 2;
-static constexpr std::array<uint16_t, 2> TOUCHSCREEN_DIMS = {320, 240};
-static constexpr uint16_t PACKET_SIZE = 55;
+    const char HELLO_MSG[10] = "HELLO_3DS";
+    const  char ACK_MSG[8] = "ACK_3DS";
+}
 
-static const char HELLO_MSG[10] = "HELLO_3DS";
-static const  char ACK_MSG[8] = "ACK_3DS";
 
 enum class ButtonMask: uint16_t {
+    NEVER  = 0,
     A      = 1 << 0,
     B      = 1 << 1,
     X      = 1 << 2,
@@ -26,7 +29,7 @@ enum class ButtonMask: uint16_t {
     ZL     = 1 << 10,
     ZR     = 1 << 11,
     SELECT = 1 << 12,
-    START  = 1 << 13
+    START  = 1 << 13,
 };
 
 //added for parsing on server, which wlil perform simple delta checks
@@ -56,6 +59,7 @@ enum class TotalInputMask: uint32_t {
 };
 
 static constexpr uint16_t NUM_INPUTS = 20;
+static constexpr int REFRESH_RATE = 60; //Hz
 
 //
 #pragma pack(push, 1)
