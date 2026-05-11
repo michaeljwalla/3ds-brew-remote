@@ -21,6 +21,8 @@ class InputMouse: public InputObject {
         void set_pos(coordinate newPos);
         coordinate get_pos() const;
 
+        // flush
+        void sync(bool force = false);
 
     friend class InputController;
 

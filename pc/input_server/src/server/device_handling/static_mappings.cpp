@@ -7,6 +7,7 @@
 #include "logger.h"
 #include <chrono>
 #include <cstdint>
+#include <linux/input-event-codes.h>
 #include <memory>
 #include <utility>
 #include "datatypes.h"
@@ -187,7 +188,7 @@ namespace {
         }
     };
     template<typename T>
-    UpdateAfterScope(T) -> UpdateAfterScope<T>;
+    UpdateAfterScope(T&, T) -> UpdateAfterScope<T>;
     
     template<typename T>
     T& as(void* x) { return *static_cast<T*>(x); }
@@ -231,6 +232,25 @@ std::unordered_map<InputTypes, InputMap<InputObject>> available {
             else mouse.button_up( BTN_RIGHT );
             return 0;
         }},
+
+        {Options::X, [](Params data) {
+            static auto last = clock::now();
+
+            auto& mouse = as<InputMouse>(data.parent);
+            auto buttons = data.code.buttons;
+            auto& cfg = config::get<InputMouse>();
+
+            auto cur = clock::now();
+            FireAfterScope([cur]() {
+                last = cur;
+                return;
+            });
+            // fire on release
+            if (!ON(ButtonMask::X, buttons) && GET_DELTA_MS(last, cur) < cfg.scroll.is_click_threshold_ms) {
+                mouse.button_click( BTN_MIDDLE );
+            }
+            return 0;
+        } },
 
         //mouse movement
         {Options::ALWAYS, [](Params data) {
@@ -292,6 +312,10 @@ std::unordered_map<InputTypes, InputMap<InputObject>> available {
                 return true;
             }();
 
+            return 0;
+        }},
+        {Options::AFTER, [](Params data) {
+            as<InputMouse>(data.parent).sync();
             return 0;
         }}
     }}),
