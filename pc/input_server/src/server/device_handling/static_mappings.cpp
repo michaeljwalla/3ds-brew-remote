@@ -234,20 +234,20 @@ std::unordered_map<InputTypes, InputMap<InputObject>> available {
         }},
 
         {Options::X, [](Params data) {
-            static auto last = clock::now();
+            static auto last_press = clock::now();
 
             auto& mouse = as<InputMouse>(data.parent);
             auto buttons = data.code.buttons;
             auto& cfg = config::get<InputMouse>();
 
+            bool pressed = ON(ButtonMask::X, buttons);
             auto cur = clock::now();
-            FireAfterScope([cur]() {
-                last = cur;
-                return;
-            });
-            // fire on release
-            if (!ON(ButtonMask::X, buttons) && GET_DELTA_MS(last, cur) < cfg.scroll.is_click_threshold_ms) {
-                mouse.button_click( BTN_MIDDLE );
+
+            if (pressed) {
+                last_press = cur;
+            } else if (GET_DELTA_MS(last_press, cur) < cfg.scroll.is_click_threshold_ms) {
+                // release within threshold -> treat as middle click instead of scroll-toggle
+                mouse.button_click(BTN_MIDDLE);
             }
             return 0;
         } },

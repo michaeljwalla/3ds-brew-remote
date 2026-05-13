@@ -61,7 +61,7 @@ struct Config<InputMouse> {
         //will attempt to scroll L/R/U/D
         float dampener = 0.05;
         //treat release within x ms as a middle-click
-        float is_click_threshold_ms = 100;
+        float is_click_threshold_ms = 200;
 
     };
     public:
