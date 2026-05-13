@@ -26,9 +26,9 @@ void InputMouse::init() {
 }
 void InputMouse::button_click(int btn) {
     os.emit(EV_KEY, btn, 1);
-    ;
+    os.sync(true);
     os.emit(EV_KEY, btn, 0);
-    ;
+    os.sync(true);
 }
 void InputMouse::button_down(int btn) {
     os.emit(EV_KEY, btn, 1);

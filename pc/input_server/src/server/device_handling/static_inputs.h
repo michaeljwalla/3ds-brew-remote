@@ -12,6 +12,8 @@ class InputMouse: public InputObject {
     public:
         void button_down(int btn);
         void button_up(int btn);
+        // this fires syncs immediately (others do not)
+        // since button down/up have to be in different batches to register properly
         void button_click(int btn);
         void move(coordinate delta);
         //1 = 1 line
