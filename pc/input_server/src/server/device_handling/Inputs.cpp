@@ -37,18 +37,8 @@ bool InputController::emplace( uptr&& i ) {
     return inputs.try_emplace( i->id, std::move(i) ).second;
 }
 
-InputController::InputController(): inputs{}, buckets{}, logger{nullptr} {
-    for (auto i = 0; i < NUM_INPUTS; i++) {
-        buckets.emplace( static_cast<TotalInputMask>(1 << i), Bucket{} );
-    }
-    return;
-}
-InputController::InputController(Logger* logger): inputs{}, buckets{}, logger{logger} {
-    for (auto i = 0; i < NUM_INPUTS; i++) {
-        buckets.emplace( static_cast<TotalInputMask>(1 << i), Bucket{} );
-    }
-    return;
-}
+InputController::InputController(): inputs{}, buckets{}, logger{nullptr} {}
+InputController::InputController(Logger* logger): inputs{}, buckets{}, logger{logger} {}
 
 InputController::InputController(InputController&& other) noexcept:
     inputs{ std::move(other.inputs) },
@@ -67,7 +57,7 @@ void InputController::set_logger(Logger* logger) {
     return;
 }
 void InputController::regenerate_buckets() {
-    for (auto& [mask, b]: buckets) {
+    for (auto& b: buckets) {
         b.objects.clear();
         b.ids.clear();
         b.results.clear();
@@ -77,7 +67,7 @@ void InputController::regenerate_buckets() {
     }
 }
 void InputController::remove_from_buckets(ObjectID id) {
-    for (auto& [mask, b]: buckets) {
+    for (auto& b: buckets) {
         auto oit = b.objects.begin();
         auto iit = b.ids.begin();
         while (oit != b.objects.end()) {
@@ -100,10 +90,10 @@ void InputController::add_to_buckets(ObjectID id) {
     if (!mapping) return;
     const auto& km = mapping->getKeymap();
     for (size_t i = 0; i < NUM_INPUTS; ++i) {
-        const TotalInputMask btn = static_cast<TotalInputMask>(1 << i);
+        const TotalInputMask btn = static_cast<TotalInputMask>(i);
         auto kit = km.find(btn);
         if (kit == km.end() || kit->second == nullptr) continue;
-        auto& b = buckets[btn];
+        auto& b = buckets[i];
         b.objects.push_back(obj);
         b.ids.push_back(obj->id);
         b.results.resize(b.objects.size());
@@ -111,9 +101,9 @@ void InputController::add_to_buckets(ObjectID id) {
 }
 
 InputController::FireResult InputController::fire(TotalInputMask btn, RawInput code) const {
-    auto it = buckets.find(btn);
-    if (it == buckets.end()) return { {}, {} };
-    const auto& b = it->second;
+    const size_t idx = static_cast<size_t>(btn);
+    if (idx >= NUM_INPUTS) return { {}, {} };
+    const auto& b = buckets[idx];
     const size_t n = b.objects.size();
     size_t i = 0;
     for (auto* obj: b.objects) {

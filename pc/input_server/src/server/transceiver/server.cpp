@@ -3,6 +3,7 @@
 #include "logger.h"
 
 #include <arpa/inet.h>
+#include <bitset>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -109,40 +110,38 @@ template<isFP T>
 bool is_diff(T& a, T& b) {
     return std::abs(a - b) > DELTA_EPSILON;
 }
-uint32_t get_diffs(RawInput& prev, RawInput& cur) {
-    uint32_t diff = 0;
-    diff |= (prev.buttons ^ cur.buttons); //first 0-13 is the same
-    //circle pad
-    diff |= (
-        (is_diff(prev.circle_pad[0], cur.circle_pad[0])) ||
-        (is_diff(prev.circle_pad[1], cur.circle_pad[1]))
-    ) << 14;
-    //cpad pro
-    diff |= (
-        (is_diff(prev.circle_pad_pro[0], cur.circle_pad_pro[0])) ||
-        (is_diff(prev.circle_pad_pro[1], cur.circle_pad_pro[1]))
-    ) << 15;
-    //touch sensor
-    diff |= (
-        prev.touch_active ^ cur.touch_active ||
+// returns a per-slot set bitset over TotalInputMask indices.
+// FIRST/ALWAYS/LAST are set unconditionally; everything else is delta-gated.
+std::bitset<NUM_INPUTS> get_diffs(RawInput& prev, RawInput& cur) {
+    std::bitset<NUM_INPUTS> diff;
+    auto set = [&](TotalInputMask m) { diff.set(static_cast<size_t>(m)); };
+
+    set(TotalInputMask::FIRST);
+
+    // buttons: ButtonMask bit i (0..13) maps to TotalInputMask::A + i
+    uint16_t button_diff = prev.buttons ^ cur.buttons;
+    for (uint16_t i = 0; i < 14; ++i) {
+        if (button_diff & (1u << i)) {
+            diff.set(static_cast<size_t>(TotalInputMask::A) + i);
+        }
+    }
+
+    if (is_diff(prev.circle_pad[0], cur.circle_pad[0]) ||
+        is_diff(prev.circle_pad[1], cur.circle_pad[1])) set(TotalInputMask::CIRCLE_PAD);
+    if (is_diff(prev.circle_pad_pro[0], cur.circle_pad_pro[0]) ||
+        is_diff(prev.circle_pad_pro[1], cur.circle_pad_pro[1])) set(TotalInputMask::CIRCLE_PAD_PRO);
+    if (prev.touch_active != cur.touch_active ||
         is_diff(prev.touch[0], cur.touch[0]) ||
-        is_diff(prev.touch[1], cur.touch[1])
-    ) << 16;
-    //gyroscope
-    diff |= (
-        (is_diff(prev.gyro[0], cur.gyro[0])) ||
-        (is_diff(prev.gyro[1], cur.gyro[1])) ||
-        (is_diff(prev.gyro[2], cur.gyro[2]))
-    ) << 17;
-    //accelerometer
-    diff |= (
-        (is_diff(prev.accel[0], cur.accel[0])) ||
-        (is_diff(prev.accel[1], cur.accel[1])) ||
-        (is_diff(prev.accel[2], cur.accel[2]))
-    ) << 18;
-    //always runs per packet (not guaranteed rate)
-    diff |= 1u << 19; //ALWAYS
-    diff |= 1u << 20; //AFTER
+        is_diff(prev.touch[1], cur.touch[1])) set(TotalInputMask::TOUCH);
+    if (is_diff(prev.gyro[0], cur.gyro[0]) ||
+        is_diff(prev.gyro[1], cur.gyro[1]) ||
+        is_diff(prev.gyro[2], cur.gyro[2])) set(TotalInputMask::GYRO);
+    if (is_diff(prev.accel[0], cur.accel[0]) ||
+        is_diff(prev.accel[1], cur.accel[1]) ||
+        is_diff(prev.accel[2], cur.accel[2])) set(TotalInputMask::ACCEL);
+
+    set(TotalInputMask::ALWAYS);
+    set(TotalInputMask::LAST);
     return diff;
 }
 //main receiver runner
@@ -220,21 +219,18 @@ void run_client(const Endpoint& ep, InputController& controller) {
         last_rx = now;
         ++packet_count;
 
-        // process input and fire handlers
-        // FIRST = 0 is not reachable via (1 << i); fire it explicitly so
-        // per-packet "before" hooks (e.g. cur = now()) actually run.
-        controller.fire(TotalInputMask::FIRST, input);
-        auto diff_mask = get_diffs(prev_input, input);
+        // process input and fire handlers — TotalInputMask is linear now, so
+        // index order == fire order. FIRST=0 fires first, LAST=NUM_INPUTS-1 last.
+        auto diffs = get_diffs(prev_input, input);
         for (uint32_t i = 0u; i < NUM_INPUTS; ++i) {
-            const TotalInputMask btn = static_cast<TotalInputMask>(1 << i);
-            if (diff_mask & (1u << i)) controller.fire(btn, input);
+            if (diffs[i]) controller.fire(static_cast<TotalInputMask>(i), input);
         }
         std::exchange(prev_input, input); //update prev for next round
         //output
         if (packet_count % 4 == 0) {  //print at 30hz
             log << LOG_GOOD
                 << "\rPackets: " << packet_count
-                << " Diffs: " << std::format("{:b}", diff_mask)
+                << " Diffs: " << diffs.to_string()
                 << flush << LOG_END;
         }
     }

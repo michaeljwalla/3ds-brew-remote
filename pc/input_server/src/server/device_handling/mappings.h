@@ -68,10 +68,10 @@ class InputMap { //immutable
             return it->second(data);
         }
         std::vector<HandlerReturnType> handleAll(HandlerParams<T> data) const {
-            std::vector<HandlerReturnType> results(NUM_INPUTS);
+            std::vector<HandlerReturnType> results;
+            results.reserve(NUM_INPUTS);
             for (size_t i = 0; i < NUM_INPUTS; ++i) {
-                const TotalInputMask btn = static_cast<TotalInputMask>(1 << i);
-                results.push_back( handle(data) );
+                results.push_back( handle(static_cast<TotalInputMask>(i), data) );
             }
             return results;
         }

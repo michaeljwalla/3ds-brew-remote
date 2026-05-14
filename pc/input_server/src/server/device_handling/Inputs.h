@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <list>
 #include <memory>
 #include <span>
@@ -78,7 +79,8 @@ class InputController {
         };
 
         std::unordered_map<ObjectID, uptr> inputs;
-        std::unordered_map<TotalInputMask, Bucket> buckets;
+        // TotalInputMask is linear [0, NUM_INPUTS); indexed directly.
+        std::array<Bucket, NUM_INPUTS> buckets;
 
         static ObjectID counter;
         Logger* logger; //non owning
