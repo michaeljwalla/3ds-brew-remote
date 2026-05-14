@@ -221,6 +221,9 @@ void run_client(const Endpoint& ep, InputController& controller) {
         ++packet_count;
 
         // process input and fire handlers
+        // FIRST = 0 is not reachable via (1 << i); fire it explicitly so
+        // per-packet "before" hooks (e.g. cur = now()) actually run.
+        controller.fire(TotalInputMask::FIRST, input);
         auto diff_mask = get_diffs(prev_input, input);
         for (uint32_t i = 0u; i < NUM_INPUTS; ++i) {
             const TotalInputMask btn = static_cast<TotalInputMask>(1 << i);

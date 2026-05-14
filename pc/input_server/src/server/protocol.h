@@ -59,11 +59,13 @@ enum class TotalInputMask: uint32_t {
     //everything above^^ fires conditinoally
 
     //really fake states
+    FIRST  = 0,       //ex initialize/refetch a persistent datatypez across methods
     ALWAYS = 1 << 19, // just in case something wants to run at every accept
-    AFTER = 1 << 20 //synonymous with ALWAYS, just an explicit extra 
+    LAST = 1 << 20 //synonymous with ALWAYS, just an explicit extra 
 };
 
-static constexpr uint16_t NUM_INPUTS = 21;
+//
+static constexpr uint16_t NUM_INPUTS = 21; //not counting FIRST
 static constexpr int REFRESH_RATE = 60; //Hz
 
 //
