@@ -13,6 +13,11 @@ namespace {
 template<>
 struct Config<TotalInputMask> {
     private:
+        struct touchpad {
+            //magnitude of movement (0 to 1) generally considered to ignore
+            float dead_zone = 0.05;
+        };
+
         struct circle_pads {
             float dead_zone = 0.1;
             struct main {
@@ -26,6 +31,7 @@ struct Config<TotalInputMask> {
         };
     public:
         circle_pads circle_pads;
+        touchpad touchpad;
 };
 
 template<>
@@ -34,6 +40,15 @@ struct Config<InputMouse> {
     using fcoord = coords<float>;
 
     static constexpr float global_mul = 250;
+    struct touchpad {
+        bool enabled = true;
+
+        //time after entry to look for release
+        float tap_release_ms = EXPECTED_DELTA_MS*5;
+        //time after release to look for re-entry (detect double taps)
+        float tap_reenter_ms = EXPECTED_DELTA_MS*10;
+    };
+
     struct accel {
 
         bool enabled = true;
@@ -69,7 +84,7 @@ struct Config<InputMouse> {
     fcoord velocity = v_one * global_mul;
     accel accelerate;
     scroll scroll;
-    
+    touchpad touchpad;
     
 
 };
