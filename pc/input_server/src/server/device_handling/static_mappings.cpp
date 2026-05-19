@@ -104,6 +104,12 @@ namespace mouse {
     }
     namespace touchpad {
         static time_point last_touch{time::cur}, last_touch_release{time::cur};
+        static uint16_t consec_taps {0};
+
+        //[num_taps, ]
+        std::pair<int, bool> determine_input() {
+
+        };
     }
     namespace calculations {
         static coords<float> debt{0,0};
@@ -320,7 +326,6 @@ pair(InputTypes::MOUSE, {"MOUSE", {
         if (!C::get_direction(data.code, dir)) {
             return false;
         }
-        *(data.log) << 1;
 
         coords<float> scale = ((is_scrolling) ?
             coords<float>(scroll.dampener, -scroll.dampener) * (scroll.smooth ? 120 : 1)
@@ -335,7 +340,6 @@ pair(InputTypes::MOUSE, {"MOUSE", {
         ) return false;
 
         //
-        *(data.log) << delta;
         if (is_scrolling) {
             scroll.smooth ? mouse.scroll_smooth(delta) : mouse.scroll_smooth(delta);
         } else {

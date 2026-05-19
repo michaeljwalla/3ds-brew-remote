@@ -15,7 +15,8 @@ struct Config<TotalInputMask> {
     private:
         struct touchpad {
             //magnitude of movement (0 to 1) generally considered to ignore
-            float dead_zone = 0.05;
+            float dead_zone = 0.05; 
+            float dead_zone_delta = 0.01;
         };
 
         struct circle_pads {
@@ -42,6 +43,18 @@ struct Config<InputMouse> {
     static constexpr float global_mul = 250;
     struct touchpad {
         bool enabled = true;
+
+        float rate = global_mul * 3;
+
+        bool scale_speed = true;
+        //delta dead zone (below this = linear to min_rate)
+        float min_delta = 0.1;
+        float min_v = rate/2;
+
+        //delta
+        float max_delta = 0.6;
+        float max_v = rate*2;
+        int preserve_ms = EXPECTED_DELTA_MS*REFRESH_RATE/4; //will reapply cur velocity if moved within this threshold
 
         //time after entry to look for release
         float tap_release_ms = EXPECTED_DELTA_MS*5;
