@@ -45,7 +45,8 @@ struct Config<InputMouse> {
         bool enabled = true;
 
         float rate = global_mul;
-
+        float focus_scale = 0.25;
+        
         bool scale_speed = true;
         //delta dead zone (below this = linear to min_rate)
         float min_delta = 0.1;

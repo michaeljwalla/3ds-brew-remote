@@ -365,6 +365,7 @@ pair(InputTypes::MOUSE, {"MOUSE", {
         float mag;
         if (TP::get_direction(data.code, dir, mag)) {
             float v = TP::compute_velocity(mag);
+            if (ON(Buttons::Y, buttons)) v *= cfg.touchpad.focus_scale;
             auto raw = scale * (dir * v) + C::debt;
             auto raw_int = static_cast<coords<int16_t>>(raw);
             if (raw_int.magnitude()) {
