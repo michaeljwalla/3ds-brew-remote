@@ -155,7 +155,7 @@ namespace mouse {
 
         float compute_velocity(float input_mag) {
             auto& tp = config::get<InputMouse>().touchpad;
-            if (!tp.scale_speed) return tp.rate;
+            if (!tp.scale_speed) return tp.rate * input_mag;
             if (input_mag <= 0)            return 0;
             if (input_mag <= tp.min_delta) return tp.min_v * (input_mag / tp.min_delta);
             if (input_mag >= tp.max_delta) return tp.max_v;
@@ -359,8 +359,10 @@ pair(InputTypes::MOUSE, {"MOUSE", {
     coords<int16_t> delta;
     bool moved = false;
 
+    //touchpad logic
     if (cfg.touchpad.enabled && data.code.touch_active && TP::currently_pressed) {
-        coords<float> dir; float mag;
+        coords<float> dir;
+        float mag;
         if (TP::get_direction(data.code, dir, mag)) {
             float v = TP::compute_velocity(mag);
             auto raw = scale * (dir * v) + C::debt;
@@ -369,13 +371,15 @@ pair(InputTypes::MOUSE, {"MOUSE", {
                 C::debt = raw - raw_int;
                 delta   = raw_int;
                 moved   = true;
+                raw_int *= coords<float>(1, /*-2*static_cast<int>(is_scrolling) +*/ 1);
+                //drop tap logic, sustained drop would likely be jitter
                 TP::is_drag     = true;
                 TP::consec_taps = 0;
             } else {
                 C::debt = raw;
             }
         }
-    } else {
+    } else { //button logic (circle pad, dpad)
         coords<float> dir;
         moved = C::get_direction(data.code, dir)
             && C::get_delta(data.code, dir, scale, delta) //assigns delta here

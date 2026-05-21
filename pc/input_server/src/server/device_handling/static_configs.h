@@ -16,7 +16,7 @@ struct Config<TotalInputMask> {
         struct touchpad {
             //magnitude of movement (0 to 1) generally considered to ignore
             float dead_zone = 0.05; 
-            float dead_zone_delta = 0.01;
+            float dead_zone_delta = 0.005;
         };
 
         struct circle_pads {
