@@ -40,8 +40,9 @@ void OSWrapper::enableRelAxis(int axis) {
     libevdev_enable_event_type(dev, EV_REL);
     libevdev_enable_event_code(dev, EV_REL, axis, nullptr);
 }
-void OSWrapper::sync() {
+void OSWrapper::sync(bool force) {
     assert(udev && "device not created");
+    if (!force && !queued) return;
     int rc = libevdev_uinput_write_event(udev, EV_SYN, SYN_REPORT, 0);
     if (rc < 0)        throw std::system_error(-rc, std::generic_category(), "libevdev_uinput_write_event");
     return;
@@ -50,6 +51,7 @@ void OSWrapper::emit(int type, int code, int value) {
     assert(udev && "device not created");
     int rc = libevdev_uinput_write_event(udev, type, code, value);
     if (rc < 0)        throw std::system_error(-rc, std::generic_category(), "libevdev_uinput_write_event");
+    queued = true;
     return;
 }
 

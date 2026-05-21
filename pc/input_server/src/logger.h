@@ -186,3 +186,11 @@ inline Logger& Logger::singleton()  {
     static ThreadSafeLogger inst;
     return inst;
 }
+
+namespace LoggerCommons {
+    // some of the ones used here
+    const auto endl = Logger::manip(std::endl);
+    const auto flush = Logger::manip(std::flush);
+    const auto hex = Logger::manip(std::hex);
+
+}

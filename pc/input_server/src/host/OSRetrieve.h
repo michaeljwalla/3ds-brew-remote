@@ -9,6 +9,7 @@ class OSWrapper {
     libevdev_uinput* udev {nullptr};
 
     void waitReady();
+    bool queued = false;
 
     public:
     OSWrapper() = default;
@@ -25,7 +26,7 @@ class OSWrapper {
     void setIds(uint16_t vendor, uint16_t product);
     void enableKey(int code);
     void enableRelAxis(int axis);
-    void sync();
+    void sync(bool force=false);
     void emit(int type, int code, int value);
 
     //yields

@@ -12,8 +12,15 @@
 
 namespace mappingtypes {
     using HandlerReturnType = int;
+    using Datagram = const RawInput&;
     template<typename T>
-    using Handler = HandlerReturnType(*)(T* in, const RawInput& code, Logger* log);
+    struct HandlerParams {
+        T* parent;
+        Datagram code;
+        Logger* log = nullptr;
+    };
+    template<typename T>
+    using Handler = HandlerReturnType(*)(HandlerParams<T> info);
     template<typename T>
     using UntypedKeymap = std::unordered_map<TotalInputMask, Handler<T>>;
 }
@@ -55,16 +62,16 @@ class InputMap { //immutable
         const std::string& getName() const { return name; }
         const Keymap& getKeymap() const { return keymap; }
         //
-        HandlerReturnType handle(T* input, TotalInputMask btn, RawInput& code, Logger* logger=nullptr) const {
+        HandlerReturnType handle(TotalInputMask btn, HandlerParams<T> data) const {
             auto it = keymap.find(btn);
             if (it == keymap.end() || it->second == nullptr) return -1;
-            return it->second(input, code, logger);
+            return it->second(data);
         }
-        std::vector<HandlerReturnType> handleAll(T* input, RawInput& code, Logger* logger=nullptr) const {
-            std::vector<HandlerReturnType> results(NUM_INPUTS);
+        std::vector<HandlerReturnType> handleAll(HandlerParams<T> data) const {
+            std::vector<HandlerReturnType> results;
+            results.reserve(NUM_INPUTS);
             for (size_t i = 0; i < NUM_INPUTS; ++i) {
-                const TotalInputMask btn = static_cast<TotalInputMask>(1 << i);
-                results.push_back( handle(input, btn, code, logger) );
+                results.push_back( handle(static_cast<TotalInputMask>(i), data) );
             }
             return results;
         }
