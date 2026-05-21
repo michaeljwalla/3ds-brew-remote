@@ -103,13 +103,65 @@ namespace mouse {
         static auto last = cur;
     }
     namespace touchpad {
-        static time_point last_touch{time::cur}, last_touch_release{time::cur};
-        static uint16_t consec_taps {0};
+        static time_point    last_touch{time::cur}, last_touch_release{time::cur};
+        static uint16_t      consec_taps {0};
+        static coords<float> last_touch_pos {0, 0};
+        static bool          currently_pressed {false};
+        static bool          is_drag {false};
 
-        //[num_taps, ]
-        std::pair<int, bool> determine_input() {
+        // returns <consec_taps, currently_pressed>; call only from TOUCH diff slot.
+        std::pair<int, bool> determine_input(const RawInput& code) {
+            auto& tp = config::get<InputMouse>().touchpad;
+            bool pressed_now = code.touch_active != 0;
 
-        };
+            if (pressed_now && !currently_pressed) {
+                last_touch       = time::cur;
+                last_touch_pos   = {code.touch[0], code.touch[1]};
+                is_drag          = false;
+                currently_pressed = true;
+            } else if (!pressed_now && currently_pressed) {
+                last_touch_release = time::cur;
+                currently_pressed  = false;
+                auto dur = GET_DELTA_MS(last_touch, time::cur);
+                if (!is_drag && dur < tp.tap_release_ms) ++consec_taps;
+                else consec_taps = 0;
+            }
+            return {consec_taps, currently_pressed};
+        }
+
+        // call every frame from ALWAYS; fires click once tap_reenter_ms elapses.
+        void flush_pending_taps(InputMouse& mouse) {
+            auto& tp = config::get<InputMouse>().touchpad;
+            if (currently_pressed || consec_taps == 0) return;
+            if (GET_DELTA_MS(last_touch_release, time::cur) <= tp.tap_reenter_ms) return;
+            int btn = (consec_taps == 1) ? BTN_LEFT
+                    : (consec_taps == 2) ? BTN_RIGHT
+                    : BTN_MIDDLE;
+            mouse.button_click(btn);
+            consec_taps = 0;
+        }
+
+        // returns dir + mag; gates below dead_zone_delta (no debt); updates last_touch_pos.
+        bool get_direction(const RawInput& code, coords<float>& dir_out, float& mag_out) {
+            auto pos = coords<float>{code.touch[0], code.touch[1]};
+            auto raw = pos - last_touch_pos;
+            last_touch_pos = pos;
+            auto mag = raw.magnitude();
+            if (mag < global_settings.touchpad.dead_zone_delta) return false;
+            dir_out = raw.normalized();
+            mag_out = mag;
+            return true;
+        }
+
+        float compute_velocity(float input_mag) {
+            auto& tp = config::get<InputMouse>().touchpad;
+            if (!tp.scale_speed) return tp.rate;
+            if (input_mag <= 0)            return 0;
+            if (input_mag <= tp.min_delta) return tp.min_v * (input_mag / tp.min_delta);
+            if (input_mag >= tp.max_delta) return tp.max_v;
+            float t = (input_mag - tp.min_delta) / (tp.max_delta - tp.min_delta);
+            return tp.min_v + t * (tp.max_v - tp.min_v);
+        }
     }
     namespace calculations {
         static coords<float> debt{0,0};
@@ -279,75 +331,58 @@ pair(InputTypes::MOUSE, {"MOUSE", {
     return 0;
 } },
 {Options::TOUCH, [](Params data) {
-    using namespace mouse::touchpad;
-    using namespace mouse::time;
-    
-    auto& mouse = as<InputMouse>(data.parent);
-    auto codes = data.code;
-    auto& cfg = config::get<InputMouse>();
-
-
-    bool touched = codes.touch_active;
-    (touched ? last_touch : last_touch_release) = cur;
-
-    if (touched) {
-        // on touch, reset cursor to center (since we only track relative movement)
-        mouse.set_pos({0,0});
-    }
+    if (!config::get<InputMouse>().touchpad.enabled) return 0;
+    mouse::touchpad::determine_input(data.code);
     return 0;
 }},
 //mouse movement
 {Options::ALWAYS, [](Params data) {
-    //each lambda tracks its own last to prevent diff accumulation
-    
-    float to_s = 0.001;
+    using namespace mouse;
+    namespace C = calculations;
+    namespace TP = touchpad;
+
     auto& mouse = as<InputMouse>(data.parent);
     auto buttons = data.code.buttons;
     auto& cfg = config::get<InputMouse>();
-    auto& cfg_generics = config::get<TotalInputMask>();
-    
-    //calculate direction/movement
-    //y axis flipped since origin is top left
-    bool moved = [&](){
-        using namespace mouse;
-        namespace C = calculations;
-        //
-        // cur/last are advanced by Options::FIRST / Options::LAST handlers;
-        // we just read them here.
-        auto scroll = cfg.scroll;
-        bool  is_scrolling = scroll.enabled && ON(scroll.enable_key, buttons);
-        if (is_scrolling ^ C::last_scrolled) C::velocity = {0,0}; // reset (accel'd v) on state change
-        auto _ = FireAfterScope([is_scrolling]() {
-            C::last_scrolled = is_scrolling;
-        });
 
-        // direction to move
+    TP::flush_pending_taps(mouse);
+
+    auto scroll = cfg.scroll;
+    bool is_scrolling = scroll.enabled && ON(scroll.enable_key, buttons);
+    if (is_scrolling ^ C::last_scrolled) C::velocity = {0,0};
+    auto _ = FireAfterScope([is_scrolling]() { C::last_scrolled = is_scrolling; });
+
+    coords<float> scale = (is_scrolling)
+        ? coords<float>(scroll.dampener, -scroll.dampener) * (scroll.smooth ? 120 : 1)
+        : static_cast<coords<float>>(v_one);
+
+    coords<int16_t> delta;
+    bool moved = false;
+
+    if (cfg.touchpad.enabled && data.code.touch_active && TP::currently_pressed) {
+        coords<float> dir; float mag;
+        if (TP::get_direction(data.code, dir, mag)) {
+            float v = TP::compute_velocity(mag);
+            auto raw = scale * (dir * v) + C::debt;
+            auto raw_int = static_cast<coords<int16_t>>(raw);
+            if (raw_int.magnitude()) {
+                C::debt = raw - raw_int;
+                delta   = raw_int;
+                moved   = true;
+                TP::is_drag     = true;
+                TP::consec_taps = 0;
+            } else {
+                C::debt = raw;
+            }
+        }
+    } else {
         coords<float> dir;
-        if (!C::get_direction(data.code, dir)) {
-            return false;
-        }
+        moved = C::get_direction(data.code, dir)
+            && C::get_delta(data.code, dir, scale, delta) //assigns delta here
+            && delta.magnitude();
+    }
 
-        coords<float> scale = ((is_scrolling) ?
-            coords<float>(scroll.dampener, -scroll.dampener) * (scroll.smooth ? 120 : 1)
-            : static_cast<coords<float>>(v_one)
-        );
-
-        // amount to move
-        coords<int16_t> delta;
-        if (
-            !(C::get_delta(data.code, dir, scale, delta)
-            && delta.magnitude())
-        ) return false;
-
-        //
-        if (is_scrolling) {
-            scroll.smooth ? mouse.scroll_smooth(delta) : mouse.scroll_smooth(delta);
-        } else {
-            mouse.move(delta);
-        }
-
-        return true;
-    }();
+    if (moved) (is_scrolling) ? mouse.scroll_smooth(delta) : mouse.move(delta);
 
     return 0;
 }},

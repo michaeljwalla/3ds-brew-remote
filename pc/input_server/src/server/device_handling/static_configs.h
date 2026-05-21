@@ -44,7 +44,7 @@ struct Config<InputMouse> {
     struct touchpad {
         bool enabled = true;
 
-        float rate = global_mul * 3;
+        float rate = global_mul;
 
         bool scale_speed = true;
         //delta dead zone (below this = linear to min_rate)
