@@ -6,8 +6,8 @@
 
 
 // #include "server/device_handling/Inputs.h"
-#include "server/device_handling/static_mappings.h"
-#include "server/device_handling/static_inputs.h"
+#include "server/device_handling/statics/Mappings.h"
+#include "server/device_handling/statics/Objects.h"
 
 namespace {
     using namespace LoggerCommons;

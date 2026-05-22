@@ -8,7 +8,7 @@
 #include <string>
 
 #include "logger.h"
-#include "server/device_handling/mappings.h"
+#include "InputMap.h"
 #include "host/OSRetrieve.h"
 
 #include <concepts>

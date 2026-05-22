@@ -1,9 +1,9 @@
 //for statics
-#include "mappings.h"
-#include "static_mappings.h"
+#include "server/device_handling/InputMap.h"
+#include "Mappings.h"
 #include "server/protocol.h"
-#include "static_inputs.h"
-#include "static_configs.h"
+#include "Objects.h"
+#include "Configs.h"
 #include "logger.h"
 #include <chrono>
 #include <cstdint>

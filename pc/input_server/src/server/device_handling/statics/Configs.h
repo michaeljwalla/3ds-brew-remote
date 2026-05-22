@@ -1,5 +1,5 @@
 #pragma once
-#include "static_inputs.h"
+#include "Objects.h"
 #include "server/protocol.h"
 
 template<typename T>

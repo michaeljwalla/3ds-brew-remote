@@ -1,5 +1,5 @@
-#include "static_inputs.h"
-#include "static_mappings.h"
+#include "Objects.h"
+#include "Mappings.h"
 #include <linux/input-event-codes.h>
 
 

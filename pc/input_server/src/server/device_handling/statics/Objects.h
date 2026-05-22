@@ -1,7 +1,7 @@
 #pragma once
 
 #include "datatypes.h"
-#include "Inputs.h"
+#include "server/device_handling/Inputs.h"
 
 class InputMouse: public InputObject {
     using coordinate = coords<int16_t>;
