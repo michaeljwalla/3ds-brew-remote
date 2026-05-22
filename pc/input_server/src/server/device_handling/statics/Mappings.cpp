@@ -270,7 +270,48 @@ namespace mouse {
 }
 // /controller
 namespace gamepad {
+    using Side = InputGamepad::Side;
 
+    struct BtnPair { ButtonMask src; int evdev; };
+    constexpr BtnPair button_table[] = {
+        {Buttons::A, BTN_A}, {Buttons::B, BTN_B},
+        {Buttons::X, BTN_X}, {Buttons::Y, BTN_Y},
+        {Buttons::L, BTN_TL}, {Buttons::R, BTN_TR},
+        {Buttons::SELECT, BTN_SELECT}, {Buttons::START, BTN_START},
+    };
+
+    // zero a stick component within the shared circle-pad dead zone
+    float deadzone(float v, float dz) { return (v <= dz && v >= -dz) ? 0.f : v; }
+
+    void apply(InputGamepad& gp, const RawInput& code) {
+        auto b = code.buttons;
+
+        for (auto& [src, evdev] : button_table)
+            ON(src, b) ? gp.button_down(evdev) : gp.button_up(evdev);
+
+        // d-pad hat: evdev convention is down = +1, up = -1
+        gp.set_dpad(coords<float>{
+            static_cast<float>((ON(Buttons::RIGHT, b) ? 1 : 0) - (ON(Buttons::LEFT, b) ? 1 : 0)),
+            static_cast<float>((ON(Buttons::DOWN,  b) ? 1 : 0) - (ON(Buttons::UP,   b) ? 1 : 0)),
+        });
+
+        // 3DS ZL/ZR are digital -> 0 or full
+        gp.set_trigger(Side::LEFT,  ON(Buttons::ZL, b) ? 1.f : 0.f);
+        gp.set_trigger(Side::RIGHT, ON(Buttons::ZR, b) ? 1.f : 0.f);
+
+        // sticks: negate Y (3DS up is +Y; evdev ABS_Y is down-positive)
+        auto dz = global_settings.circle_pads.dead_zone;
+        gp.set_joystick(Side::LEFT, coords<float>{
+             deadzone(code.circle_pad[0], dz),
+            -deadzone(code.circle_pad[1], dz),
+        });
+        if (global_settings.circle_pads.pro.enabled) {
+            gp.set_joystick(Side::RIGHT, coords<float>{
+                 deadzone(code.circle_pad_pro[0], dz),
+                -deadzone(code.circle_pad_pro[1], dz),
+            });
+        }
+    }
 }
 std::unordered_map<InputTypes, InputMap<InputObject>> available {
 pair(InputTypes::MOUSE, {"MOUSE", {
@@ -486,15 +527,14 @@ pair(InputTypes::LOGGING, { "LOGGING", {
 
 }}),
 pair(InputTypes::GAMEPAD, {"GAMEPAD", {
-{Options::FIRST, [](Params data) {
-    return 0;
-}},
 {Options::ALWAYS, [](Params data) {
+    gamepad::apply(as<InputGamepad>(data.parent), data.code);
     return 0;
 }},
 {Options::LAST, [](Params data) {
+    as<InputGamepad>(data.parent).sync();
     return 0;
-}}//placeholder for gamepad mapping; currently unused since no gamepad input is sent by client
+}}
 }}),
 };
 
