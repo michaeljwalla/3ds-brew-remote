@@ -30,6 +30,11 @@ void OSWrapper::setIds(uint16_t vendor, uint16_t product) {
     libevdev_set_id_vendor(dev, vendor);
     libevdev_set_id_product(dev, product);
 }
+void OSWrapper::setVersion(uint16_t version) {
+    assert(dev && "device not spawned");
+    libevdev_set_id_version(dev, version);
+}
+
 void OSWrapper::enableKey(int code) {
     assert(dev && "device not spawned");
     libevdev_enable_event_type(dev, EV_KEY);
@@ -39,6 +44,11 @@ void OSWrapper::enableRelAxis(int axis) {
     assert(dev && "device not spawned");
     libevdev_enable_event_type(dev, EV_REL);
     libevdev_enable_event_code(dev, EV_REL, axis, nullptr);
+}
+void OSWrapper::enableAbsAxis(int axis, const input_absinfo& info) {
+    assert(dev && "device not spawned");
+    libevdev_enable_event_type(dev, EV_ABS);
+    libevdev_enable_event_code(dev, EV_ABS, axis, &info);
 }
 void OSWrapper::sync(bool force) {
     assert(udev && "device not created");
@@ -56,9 +66,10 @@ void OSWrapper::emit(int type, int code, int value) {
 }
 
 void OSWrapper::waitReady() { sleep(1); } //TODO utilize a non arbitrary way to await readiness;
-void OSWrapper::create(const std::string& name, uint16_t vendor, uint16_t product) {
+void OSWrapper::create(const std::string& name, uint16_t vendor, uint16_t product, uint16_t version) {
     setName(name);
     setIds(vendor, product);
+    setVersion(version);
 
     // LIBEVDEV_UINPUT_OPEN_MANAGED: libevdev opens/closes /dev/uinput itself
     int rc = libevdev_uinput_create_from_device(dev, LIBEVDEV_UINPUT_OPEN_MANAGED, &udev);

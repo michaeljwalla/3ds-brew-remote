@@ -24,11 +24,14 @@ class OSWrapper {
 
     void setName(const std::string& name);
     void setIds(uint16_t vendor, uint16_t product);
+    void setVersion(uint16_t version);
+
     void enableKey(int code);
     void enableRelAxis(int axis);
+    void enableAbsAxis(int axis, const input_absinfo& info);
     void sync(bool force=false);
     void emit(int type, int code, int value);
 
     //yields
-    void create(const std::string& name, uint16_t vendor=0x1234, uint16_t product=0x5678);
+    void create(const std::string& name, uint16_t vendor=0x1234, uint16_t product=0x5678, uint16_t version=0x1);
 };
