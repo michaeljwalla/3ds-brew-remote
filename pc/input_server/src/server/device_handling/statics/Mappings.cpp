@@ -268,7 +268,10 @@ namespace mouse {
     }
 
 }
+// /controller
+namespace gamepad {
 
+}
 std::unordered_map<InputTypes, InputMap<InputObject>> available {
 pair(InputTypes::MOUSE, {"MOUSE", {
 //left click
@@ -481,6 +484,17 @@ pair(InputTypes::LOGGING, { "LOGGING", {
 //     return 0;
 // }},
 
+}}),
+pair(InputTypes::GAMEPAD, {"GAMEPAD", {
+{Options::FIRST, [](Params data) {
+    return 0;
+}},
+{Options::ALWAYS, [](Params data) {
+    return 0;
+}},
+{Options::LAST, [](Params data) {
+    return 0;
+}}//placeholder for gamepad mapping; currently unused since no gamepad input is sent by client
 }}),
 };
 

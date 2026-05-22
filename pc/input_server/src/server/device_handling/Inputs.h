@@ -62,6 +62,8 @@ namespace {
 //
 
 //not thread safe
+//spawns inputobjects from (static) configs and executes their mappings.
+//can hold and fire multiple (you can combine "partial" implementations to create others, like GAMEPAD+cemuUDP = 3ds, wii remote)
 class InputController {
     public:
         using ObjectID = InputObject::ObjectID;
