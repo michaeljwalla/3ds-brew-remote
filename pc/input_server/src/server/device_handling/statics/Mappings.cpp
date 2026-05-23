@@ -536,6 +536,20 @@ pair(InputTypes::GAMEPAD, {"GAMEPAD", {
     return 0;
 }}
 }}),
+pair(InputTypes::CEMU_GAMEPAD, {"CEMU_GAMEPAD", {
+{Options::FIRST, [](Params data) {
+    as<InputCemuGamepad>(data.parent).poll();
+    return 0;
+}},
+{Options::ALWAYS, [](Params data) {
+    as<InputCemuGamepad>(data.parent).translate(data.code);
+    return 0;
+}},
+{Options::LAST, [](Params data) {
+    as<InputCemuGamepad>(data.parent).sync();
+    return 0;
+}}
+}}),
 };
 
 InputMap<InputObject>& get_mapping(InputTypes type) {

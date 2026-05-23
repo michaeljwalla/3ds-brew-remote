@@ -1,4 +1,5 @@
 #include <iostream>
+#include "logger.h"
 #include "server.h"
 
 #include <libevdev/libevdev-uinput.h>
@@ -18,15 +19,44 @@ namespace {
 namespace {
     using ObjectID = InputObject::ObjectID;
 }
-int main() {
-    
-    Logger& log = Logger::singleton();
+
+InputController mouse(Logger& log) {
     InputController controller(&log);
     ObjectID mId = controller.create<InputMouse>("My Virtual Mouse", true);
     InputMouse* mouse = controller.get_static<InputMouse>(mId);
     //controller.override_mapping(mId, get_mapping(InputTypes::LOGGING));
     
     log << LS::GOOD << *mouse << endl;
+    return std::move(controller);
+}
+InputController gamepad(Logger& log) {
+    InputController controller(&log);
+    controller.create<InputGamepad>("My Virtual Gamepad", true);
+
+    return controller;
+}
+int main() {
+    using LogArg = Logger::LogArg;
+    using LogFunc = Logger::LogFunc;
+
+    //dropall
+    Logger log{[](const LogArg& arg) { //defaults to cout << ... functionality
+        std::visit( overloaded { //state 1 = cerr, others [0, 1) U (1, inf] are cout
+            [](const LoggerState& v) {
+                return;
+            },
+            [](const auto& v) {
+                return;
+            },
+        },
+        arg);
+        return;
+    }};
+    // Logger& log = Logger::singleton();
+    
+    auto controller {
+        gamepad(log)
+    };
     //
 
     log << "Input IP [127.0.0.1]: ";
