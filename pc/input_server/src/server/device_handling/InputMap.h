@@ -31,6 +31,7 @@ enum InputTypes {
     KEYBOARD,
     MOUSE,
     GAMEPAD,
+    CEMU_GAMEPAD
     // ...
 };
 inline const char* getInputTypeName(InputTypes t) {
@@ -40,7 +41,8 @@ inline const char* getInputTypeName(InputTypes t) {
         case KEYBOARD: return "KEYBOARD";
         case MOUSE: return "MOUSE";
         case GAMEPAD: return "GAMEPAD";
-        
+        case CEMU_GAMEPAD: return "CEMU_GAMEPAD";
+
         default:    return "Unknown";
     }
 }
