@@ -313,6 +313,100 @@ namespace gamepad {
         }
     }
 }
+
+// InputCemuRelay3DS::translate lives here so it can reuse gamepad::button_table
+// and gamepad::deadzone — both are file-local to this TU. DSU convention
+// differs from evdev's: PROTOCOL.md says stick Y axes are +up (same as the
+// 3DS), so we do NOT negate Y the way gamepad::apply does for evdev.
+void InputCemuRelay3DS::translate(const RawInput& code) {
+    using Side = InputGamepad::Side;
+    auto b = code.buttons;
+
+    // Face / shoulder / system buttons via the shared 3DS→evdev BTN_* table;
+    // InputCemuGamepad::button_down/up then maps BTN_* to the DSU bool.
+    for (auto& [src, btn] : gamepad::button_table)
+        ON(src, b) ? button_down(btn) : button_up(btn);
+
+    // D-pad: 3DS sends digital bits → {-1, 0, 1}² → set_dpad's four bools.
+    set_dpad(coords<float>{
+        static_cast<float>((ON(Buttons::RIGHT, b) ? 1 : 0) - (ON(Buttons::LEFT, b) ? 1 : 0)),
+        static_cast<float>((ON(Buttons::DOWN,  b) ? 1 : 0) - (ON(Buttons::UP,   b) ? 1 : 0)),
+    });
+
+    // ZL/ZR are digital on the 3DS → full-pressure DSU L2/R2 triggers.
+    set_trigger(Side::LEFT,  ON(Buttons::ZL, b) ? 1.0f : 0.0f);
+    set_trigger(Side::RIGHT, ON(Buttons::ZR, b) ? 1.0f : 0.0f);
+
+    // Sticks — both sender and receiver are +up, so pass Y straight through.
+    auto dz = global_settings.circle_pads.dead_zone;
+    set_joystick(Side::LEFT, coords<float>{
+        gamepad::deadzone(code.circle_pad[0], dz),
+        gamepad::deadzone(code.circle_pad[1], dz),
+    });
+    if (global_settings.circle_pads.pro.enabled) {
+        set_joystick(Side::RIGHT, coords<float>{
+            gamepad::deadzone(code.circle_pad_pro[0], dz),
+            gamepad::deadzone(code.circle_pad_pro[1], dz),
+        });
+    }
+
+    // Motion. Units already match the DSU wire: gyro deg/s, accel g.
+    // Axis mapping is index-aligned: 3DS gyro[0/1/2] ↔ DSU pitch/yaw/roll,
+    // empirically verified against Azahar + padtest. The 3DS source's
+    // gyro_x/y/z = roll/pitch/yaw labels (3ds/source/main.cpp:17-19) are
+    // dev nomenclature for a different coordinate system; the underlying
+    // *physical* axes happen to line up index-for-index with DSU's. Only
+    // the pitch axis needs sign inversion (nose-up on the 3DS read as
+    // nose-down in-game otherwise). Accel handedness is still unverified
+    // per DESIGN.md §10.3.
+    set_gyro(-code.gyro[0], code.gyro[1], code.gyro[2]);
+    set_accel(code.accel[0], code.accel[1], code.accel[2]);
+
+    // Touch. The 3DS side normalises the touch position to [0, 1]
+    // (px/319, py/239) before sending — see 3ds/source/main.cpp:271 — so
+    // we have to scale BACK up to a meaningful integer range before
+    // handing it to DSU's uint16 fields. Native 3DS pixel range (×319,
+    // ×239) is the honest choice: it preserves every pixel the 3DS can
+    // physically resolve, and the four corners land at (0,0), (319,0),
+    // (0,239), (319,239) for client calibration UIs to pin against.
+    // (Bug history: casting the normalised float straight to uint16
+    // collapsed every tap to {0, 1}², which "passed" the top-left
+    // calibration step at (0,0) but stuck every subsequent corner on
+    // top of it.) Touch ID bumps on each press edge per DESIGN.md §9.4.
+    bool now_touching = code.touch_active != 0;
+    if (now_touching && !prev_touch_) ++touch_id_;
+    prev_touch_ = now_touching;
+    set_touch(0, now_touching,
+              static_cast<uint16_t>(code.touch[0] * 319.0f),
+              static_cast<uint16_t>(code.touch[1] * 239.0f),
+              touch_id_);
+    // The touchpad-position fields above are the *surface* — clients like
+    // Azahar's "Use controller touchpad" read them to drive the cursor.
+    // The touch-button bit (byte 19) is the *click* — what tap-bound game
+    // actions actually fire on. On the 3DS the screen IS the click (no
+    // hover state on a resistive screen), so mirror touch_active straight
+    // into it. If a future subclass wants real tap-vs-drag discrimination
+    // (à la mouse::touchpad::determine_input + flush_pending_taps), lift
+    // that state machine into the subclass — its statics are mouse-local
+    // and not safe to call from here.
+    set_touch_button(now_touching);
+}
+
+// Shared keymap for every cemu-derived device. Returns a fresh map each
+// call so two slots in `available` (CEMU_GAMEPAD and CEMU_RELAY_3DS extended
+// from it) can be initialised in the same initializer list without
+// referring to each other. The per-tick translation is virtual on the
+// object — both poll() and translate() dispatch through the runtime type
+// of the parent InputCemuGamepad*.
+namespace {
+    InputMap<IO> make_cemu_gamepad_base() {
+        return InputMap<IO>{"CEMU_GAMEPAD", {
+            {Options::FIRST,  [](Params data) { as<InputCemuGamepad>(data.parent).poll();             return 0; }},
+            {Options::ALWAYS, [](Params data) { as<InputCemuGamepad>(data.parent).translate(data.code); return 0; }},
+            {Options::LAST,   [](Params data) { as<InputCemuGamepad>(data.parent).sync();             return 0; }},
+        }};
+    }
+}
 std::unordered_map<InputTypes, InputMap<InputObject>> available {
 pair(InputTypes::MOUSE, {"MOUSE", {
 //left click
@@ -536,20 +630,15 @@ pair(InputTypes::GAMEPAD, {"GAMEPAD", {
     return 0;
 }}
 }}),
-pair(InputTypes::CEMU_GAMEPAD, {"CEMU_GAMEPAD", {
-{Options::FIRST, [](Params data) {
-    as<InputCemuGamepad>(data.parent).poll();
-    return 0;
-}},
-{Options::ALWAYS, [](Params data) {
-    as<InputCemuGamepad>(data.parent).translate(data.code);
-    return 0;
-}},
-{Options::LAST, [](Params data) {
-    as<InputCemuGamepad>(data.parent).sync();
-    return 0;
-}}
-}}),
+pair(InputTypes::CEMU_GAMEPAD, make_cemu_gamepad_base()),
+// CEMU_RELAY_3DS: the base piped onto itself with no overrides yet. The
+// right-hand of extend() is the new mapping's slot handlers; any slot
+// the right side doesn't define is preserved from the base. Adding a
+// per-slot override (e.g. a LOGGING-style A/B/X/Y hook for debug, or a
+// custom LAST that prunes subscribers manually) means adding entries to
+// the right-hand initializer below — they will override the base.
+pair(InputTypes::CEMU_RELAY_3DS,
+     make_cemu_gamepad_base().extend("CEMU_RELAY_3DS", { /* overrides go here */ })),
 };
 
 InputMap<InputObject>& get_mapping(InputTypes type) {

@@ -35,6 +35,19 @@ InputController gamepad(Logger& log) {
 
     return controller;
 }
+InputController cemu_gamepad(Logger& log) {
+    InputController controller(&log);
+    controller.create<InputCemuGamepad>("My Virtual Cemu Gamepad", true);
+
+    return controller;
+}
+InputController ds(Logger& log) {
+    InputController controller(&log);
+    controller.create<InputCemuRelay3DS>("My Virtual 3DS (UDS Layer)", true);
+    controller.create<InputGamepad>("My Virtual 3DS (Xbox Layer)", true);
+
+    return controller;
+}
 int main() {
     using LogArg = Logger::LogArg;
     using LogFunc = Logger::LogFunc;
@@ -55,7 +68,7 @@ int main() {
     // Logger& log = Logger::singleton();
     
     auto controller {
-        gamepad(log)
+        ds(log)
     };
     //
 
@@ -66,28 +79,6 @@ int main() {
     if (in.empty()) in = "127.0.0.1";
     
     run_client( { in }, controller );
-    // mouse.enableKey(BTN_LEFT);
-    // mouse.enableKey(BTN_RIGHT);
-    // mouse.enableRelAxis(REL_X);
-    // mouse.enableRelAxis(REL_Y);
-    // mouse.create("Virtual Mouse");
-
-    // mouse.mouseMove(100, 50);
-    // mouse.mouseClick(BTN_LEFT);
-
-    // UinputDevice kbd;
-    // kbd.enableKey(KEY_H);
-    // kbd.enableKey(KEY_I);
-    // kbd.enableKey(KEY_ENTER);
-    // kbd.create("Virtual Keyboard");
-
-    // kbd.keyPress(KEY_H);
-    // kbd.keyPress(KEY_I);
-    // kbd.keyPress(KEY_ENTER);
 
     return 0;
 }
-
-// int main() {
-//     
-// }
