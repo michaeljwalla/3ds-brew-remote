@@ -393,3 +393,21 @@ uint8_t InputCemuGamepad::rumble(uint8_t motor) const {
 size_t InputCemuGamepad::subscriber_count() const {
     return con ? con->subscriber_count() : 0;
 }
+
+//InputCemuRelay3DS
+InputCemuRelay3DS::InputCemuRelay3DS(ObjectID id, std::string_view name):
+    InputCemuGamepad(id, name)
+{}
+
+void InputCemuRelay3DS::init() {
+    // Base does the heavy lifting (own / open the Connection, push the
+    // slot descriptor, set mapping = CEMU_GAMEPAD). We then swap the
+    // mapping for the relay-specific one — CEMU_RELAY_3DS — so any
+    // overrides registered in available take precedence over the base.
+    InputCemuGamepad::init();
+    mapping = &get_mapping(InputTypes::CEMU_RELAY_3DS);
+}
+
+// translate() lives in Mappings.cpp next to gamepad::button_table and
+// gamepad::deadzone — both are file-local helpers in that translation
+// unit and the relay's translation reuses them.

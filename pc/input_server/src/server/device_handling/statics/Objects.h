@@ -178,3 +178,26 @@ class InputCemuGamepad: public InputGamepad {
     friend class InputController;
 
 };
+
+// 3DS-specific relay: overrides translate() to decode a 3DS RawInput
+// (ButtonMask + circle pads + gyro + accel + touch) into the DSU frame
+// the base class broadcasts. Uses the CEMU_RELAY_3DS mapping, which is
+// CEMU_GAMEPAD extended (no overrides yet) — demonstrating the pattern
+// so future cemu derivatives (Wii remote, DualShock, ...) can add per-slot
+// handlers without rewriting the base.
+class InputCemuRelay3DS : public InputCemuGamepad {
+    protected:
+        InputCemuRelay3DS(ObjectID id, std::string_view name);
+
+        void init() override;
+        void translate(const RawInput& code) override;
+
+        // Touch ID bookkeeping. DSU's TouchPoint.id is the stable
+        // identifier for one continuous contact, so it bumps on every
+        // press edge to let clients distinguish consecutive contacts.
+        bool    prev_touch_ = false;
+        uint8_t touch_id_   = 0;
+
+    friend class InputController;
+
+};

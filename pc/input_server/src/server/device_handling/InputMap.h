@@ -31,7 +31,8 @@ enum InputTypes {
     KEYBOARD,
     MOUSE,
     GAMEPAD,
-    CEMU_GAMEPAD
+    CEMU_GAMEPAD,
+    CEMU_RELAY_3DS
     // ...
 };
 inline const char* getInputTypeName(InputTypes t) {
@@ -42,6 +43,7 @@ inline const char* getInputTypeName(InputTypes t) {
         case MOUSE: return "MOUSE";
         case GAMEPAD: return "GAMEPAD";
         case CEMU_GAMEPAD: return "CEMU_GAMEPAD";
+        case CEMU_RELAY_3DS: return "CEMU_RELAY_3DS";
 
         default:    return "Unknown";
     }
@@ -77,5 +79,12 @@ class InputMap { //immutable
             }
             return results;
         }
-        
+
+        // Map1 | Map2 w/ map2 priority on dupes
+        InputMap extend(const std::string& new_name, Keymap overrides) const {
+            Keymap merged = this->keymap;   // copy (member is const Keymap)
+            for (auto& [k, v] : overrides) merged[k] = v;   // right wins
+            return InputMap(new_name, std::move(merged));
+        }
+
 };
